@@ -12,7 +12,7 @@ Client ID: `6f9f689a446f4afb8c9577beb830d3a8`
 
 Redirect URI (must match your Spotify developer dashboard exactly): `http://127.0.0.1:5173/callback`
 
-Uses Authorization Code with PKCE (S256), random state validation, and refresh tokens. No client secret. Tokens stay in this browser’s local storage so reconnecting is not needed after every reload; Disconnect clears them. Use on a trusted device. OAuth transaction state/verifier live only in session storage. Callback query parameters are removed after sign-in.
+Uses Authorization Code with PKCE (S256), random state validation, and refresh tokens. No client secret. Tokens stay in this browser’s local storage so reconnecting is not needed after every reload; **Disconnect** in the top-right clears tokens and pending sign-in state, stops polling, and returns to the welcome screen. Pending token responses cannot restore a logged-out session. Reconnecting uses Spotify’s `show_dialog=true` authorization parameter so approval is shown again; choose “Not you?” on Spotify to switch accounts. This signs out of the companion; Spotify manages its own browser session. Use on a trusted device. OAuth transaction state/verifier live only in session storage. Callback query parameters are removed after sign-in.
 
 ## If Spotify refuses sign-in
 
@@ -39,3 +39,9 @@ Track title, first artist, album and duration are sent to https://lrclib.net/api
 ## GitHub Pages
 
 Hosted at https://yesslashno.github.io/lyrics/. Register that exact URL, including trailing slash, as a Spotify redirect URI. Pages serves the root of main. Local development still uses http://127.0.0.1:5173/callback.
+
+## Add missing lyrics
+
+When lyrics are missing (or the lookup fails), choose **Add missing lyrics** beside the lyrics heading. Paste plain lyrics and optionally timestamped LRC lyrics for this exact recording. The form displays the song, artist and album, and keeps that recording as its target even if playback moves to another song.
+
+**Publish to LRCLIB** contributes publicly to LRCLIB, making the lyrics available to other listeners and devices. LRCLIB requires a proof-of-work challenge; preparation runs in a background worker so the page remains responsive, and may take a few minutes. Close cancels pending preparation/requests. Errors keep the text in the open form for retry. Successful publication updates the current screen immediately. Other open screens may need a reload or **Retry lyrics** to discard a cached missing result. Spotify credentials are never sent to LRCLIB. No real test lyrics were published during validation.

@@ -1,3 +1,4 @@
+import {createLyricsEditor} from './lyrics-editor.js';
 import {Spotify,position,formatTime} from './spotify.js';
 import {Lyrics,parseLrc,activeLine,trackKey} from './lyrics.js';
 const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort;
@@ -5,26 +6,35 @@ const lyricSection=document.createElement('section'); lyricSection.id='lyrics'; 
 const lyricHeader=document.createElement('div'); lyricHeader.className='lyrics-header';
 const lyricLabel=document.createElement('a'); lyricLabel.href='https://lrclib.net';lyricLabel.target='_blank';lyricLabel.rel='noopener noreferrer';lyricLabel.textContent='LYRICS · LRCLIB';
 const lyricRetry=document.createElement('button');lyricRetry.className='quiet';lyricRetry.textContent='Retry lyrics';lyricRetry.hidden=true;
+const lyricAdd=document.createElement('button');lyricAdd.className='quiet';lyricAdd.textContent='Add missing lyrics';lyricAdd.hidden=true;
+const editor=createLyricsEditor((track,value)=>{
+  if(value)lyrics.cache.set(trackKey(track),{...value,published:true});
+  if(trackKey(track)===lyricsKey)loadLyrics(track,true);
+});
+lyricAdd.onclick=()=>editor.open(current?.item?.type==='track'?current.item:null);
 const lyricStatus=document.createElement('p');lyricStatus.className='lyrics-status';lyricStatus.setAttribute('role','status');
 const lyricScroll=document.createElement('div');lyricScroll.className='lyrics-scroll';lyricScroll.tabIndex=0;lyricScroll.setAttribute('aria-label','Song lyrics');
-lyricHeader.append(lyricLabel,lyricRetry);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
-lyricRetry.onclick=()=>loadLyrics(current?.item,true);
+const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricRetry,lyricAdd);lyricHeader.append(lyricLabel,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
+lyricRetry.onclick=()=>{lyrics.cache.delete(trackKey(current?.item));loadLyrics(current?.item,true);};
 async function loadLyrics(track,force=false) {
   const key=trackKey(track);if(key===lyricsKey && !force)return;
   lyricsKey=key;lyricAbort?.abort();lyricAbort=new AbortController();const controller=lyricAbort;
   lyricLines=[];lineNodes=[];lastLine=-2;lyricScroll.replaceChildren();lyricScroll.scrollTop=0;
-  lyricSection.hidden=!track;document.body.classList.toggle('with-lyrics',!!track);lyricRetry.hidden=true;if(!track)return;
+  lyricSection.hidden=!track;document.body.classList.toggle('with-lyrics',!!track);lyricRetry.hidden=true;lyricAdd.hidden=true;if(!track)return;
   lyricStatus.textContent='Finding lyrics…';
   const timeout=setTimeout(()=>controller.abort('timeout'),20000);
   try {
-    const result=await lyrics.get(track,controller.signal);if(key!==lyricsKey)return;
+    const result=await lyrics.get(track,controller.signal);if(key!==lyricsKey || controller!==lyricAbort)return;
+    lyricAdd.hidden=!!(result?.instrumental || result?.syncedLyrics || result?.plainLyrics);
+    lyricRetry.hidden=lyricAdd.hidden;
+    lyricAdd.textContent='Add missing lyrics';
     lyricLines=parseLrc(result?.syncedLyrics || '');
-    lyricStatus.textContent=result?.instrumental?'Instrumental · no lyrics':lyricLines.length?'Synced lyrics · following the music':result?.plainLyrics?'Plain lyrics · timing unavailable':'No lyrics found for this recording.';
+    lyricStatus.textContent=(result?.published?'Published to LRCLIB · ':'')+(result?.instrumental?'Instrumental · no lyrics':lyricLines.length?'Synced lyrics · following the music':result?.plainLyrics?'Plain lyrics · timing unavailable':'No lyrics found for this recording.');
     const texts=lyricLines.length?lyricLines.map(line=>line.text):result?.plainLyrics?.split(/\r?\n/) || [];
     lineNodes=texts.map(text=>{const node=document.createElement('p');node.className='lyric-line';node.textContent=text || '♪';return node;});lyricScroll.append(...lineNodes);followLyrics(position(current,receivedAt));
   } catch(error) {
     if(key!==lyricsKey || controller!==lyricAbort)return;
-    lyricStatus.textContent=error.message || 'Lyrics request timed out. Try again.';lyricRetry.hidden=false;
+    lyricStatus.textContent=error.message || 'Lyrics request timed out. Try again.';lyricRetry.hidden=false;lyricAdd.hidden=false;lyricAdd.textContent='Add missing lyrics';
   } finally {clearTimeout(timeout);}
 }
 function followLyrics(ms) {
@@ -72,7 +82,7 @@ async function poll() {
   } finally { busy=false; if(version===generation && spotify.tokens()) timer=setTimeout(poll,document.hidden?Math.max(delay,15000):delay); }
 }
 $('connect').onclick=()=>spotify.login().catch(error=>notice(error.message));
-$('disconnect').onclick=()=>{generation++; clearTimeout(timer); spotify.disconnect(); current=null; render(null); connected(); notice(); $('connection').textContent='Made for listening.';};
+$('disconnect').onclick=()=>{generation++; clearTimeout(timer); blockedUntil=0; failures=0; spotify.disconnect(); editor.close(); current=null; render(null); connected(); notice('Signed out. Connect again, then choose “Not you?” on Spotify to use a different account.'); $('connect').focus(); $('connection').textContent='Made for listening.';};
 $('art').onerror=()=>{ $('art').hidden=true; $('art-placeholder').hidden=false; };
 $('fullscreen').onclick=async()=>{try { if(document.fullscreenElement) await document.exitFullscreen(); else if(document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen(); else notice('On iPad, use Safari’s Add to Home Screen for a full-screen view.'); } catch { notice('Full screen is unavailable in this browser.'); }};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) poll();});

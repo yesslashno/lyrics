@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 const root = new URL('./', import.meta.url);
-const files = {'/':'index.html','/callback':'index.html','/app.js':'app.js','/spotify.js':'spotify.js','/lyrics.js':'lyrics.js','/style.css':'style.css'};
+const files = {'/':'index.html','/callback':'index.html','/app.js':'app.js','/spotify.js':'spotify.js','/lyrics.js':'lyrics.js','/validate-lyrics.js':'validate-lyrics.js','/lyrics-editor.js':'lyrics-editor.js','/style.css':'style.css','/publish.js':'publish.js','/publish-worker.js':'publish-worker.js','/sha256.js':'sha256.js'};
 http.createServer(async (req,res) => {
   const path = files[new URL(req.url,'http://127.0.0.1').pathname];
   if (!path || !['GET','HEAD'].includes(req.method)) { res.writeHead(404); res.end('Not found'); return; }
