@@ -1,11 +1,12 @@
 import {createLyricsEditor} from './lyrics-editor.js';
 import {Spotify,position,formatTime} from './spotify.js?v=account-photo-2';
 import {Lyrics,parseLrc,activeLine,trackKey} from './lyrics.js';
-const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort;
+const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort,followingLyrics=true;
 const lyricSection=document.createElement('section'); lyricSection.id='lyrics'; lyricSection.hidden=true;
 const lyricHeader=document.createElement('div'); lyricHeader.className='lyrics-header';
 const lyricLabel=document.createElement('a'); lyricLabel.href='https://lrclib.net';lyricLabel.target='_blank';lyricLabel.rel='noopener noreferrer';lyricLabel.textContent='LYRICS · LRCLIB';
 const lyricRetry=document.createElement('button');lyricRetry.className='quiet';lyricRetry.textContent='Retry lyrics';lyricRetry.hidden=true;
+const lyricFollow=document.createElement('button');lyricFollow.className='quiet';lyricFollow.textContent='Follow lyrics';lyricFollow.hidden=true;
 const lyricAdd=document.createElement('button');lyricAdd.className='quiet';lyricAdd.textContent='Add missing lyrics';lyricAdd.hidden=true;
 const editor=createLyricsEditor((track,value)=>{
   if(value)lyrics.cache.set(trackKey(track),{...value,published:true});
@@ -14,12 +15,20 @@ const editor=createLyricsEditor((track,value)=>{
 lyricAdd.onclick=()=>editor.open(current?.item?.type==='track'?current.item:null);
 const lyricStatus=document.createElement('p');lyricStatus.className='lyrics-status';lyricStatus.setAttribute('role','status');
 const lyricScroll=document.createElement('div');lyricScroll.className='lyrics-scroll';lyricScroll.tabIndex=0;lyricScroll.setAttribute('aria-label','Song lyrics');
-const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricRetry,lyricAdd);lyricHeader.append(lyricLabel,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
+const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricFollow,lyricRetry,lyricAdd);lyricHeader.append(lyricLabel,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
+function pauseFollowing(){if(!lyricLines.length)return;followingLyrics=false;lyricFollow.hidden=false;}
+lyricScroll.addEventListener('wheel',pauseFollowing,{passive:true});
+lyricScroll.addEventListener('touchstart',pauseFollowing,{passive:true});
+lyricScroll.addEventListener('pointerdown',pauseFollowing,{passive:true});
+lyricScroll.addEventListener('keydown',event=>{if(['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key))pauseFollowing();});
+lyricFollow.onclick=()=>{followingLyrics=true;lyricFollow.hidden=true;lastLine=-2;followLyrics(position(current,receivedAt));};
+window.addEventListener('resize',()=>{lastLine=-2;followLyrics(position(current,receivedAt));});
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{lastLine=-2;followLyrics(position(current,receivedAt));}).observe(lyricScroll);
 lyricRetry.onclick=()=>{lyrics.cache.delete(trackKey(current?.item));loadLyrics(current?.item,true);};
 async function loadLyrics(track,force=false) {
   const key=trackKey(track);if(key===lyricsKey && !force)return;
   lyricsKey=key;lyricAbort?.abort();lyricAbort=new AbortController();const controller=lyricAbort;
-  lyricLines=[];lineNodes=[];lastLine=-2;lyricScroll.replaceChildren();lyricScroll.scrollTop=0;
+  lyricLines=[];lineNodes=[];lastLine=-2;followingLyrics=true;lyricFollow.hidden=true;lyricScroll.replaceChildren();lyricScroll.scrollTop=0;
   lyricSection.hidden=!track;document.body.classList.toggle('with-lyrics',!!track);lyricRetry.hidden=true;lyricAdd.hidden=true;if(!track)return;
   lyricStatus.textContent='Finding lyrics…';
   const timeout=setTimeout(()=>controller.abort('timeout'),20000);
@@ -40,7 +49,13 @@ async function loadLyrics(track,force=false) {
 function followLyrics(ms) {
   if(!lyricLines.length)return;const index=activeLine(lyricLines,ms);if(index===lastLine)return;
   lineNodes.forEach((node,i)=>{node.classList.toggle('active',i===index);if(i===index)node.setAttribute('aria-current','true');else node.removeAttribute('aria-current');});
-  lastLine=index;const node=lineNodes[index];if(node)lyricScroll.scrollTo({top:Math.max(0,node.offsetTop-lyricScroll.offsetTop-lyricScroll.clientHeight/2+node.clientHeight/2),behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+  lastLine=index;const node=lineNodes[index];
+  if(node && followingLyrics){
+    // Use one coordinate system: offsetTop can refer to different offset parents on iPad.
+    const lineBox=node.getBoundingClientRect(),scrollBox=lyricScroll.getBoundingClientRect();
+    const top=lyricScroll.scrollTop+lineBox.top-scrollBox.top-lyricScroll.clientTop-lyricScroll.clientHeight/2+lineBox.height/2;
+    lyricScroll.scrollTo({top:Math.max(0,top),behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+  }
 }
 const $=id=>document.getElementById(id), spotify=new Spotify();
 let current=null,receivedAt=0,timer,busy=false,generation=0,blockedUntil=0,failures=0,accountPending=false,accountName='';

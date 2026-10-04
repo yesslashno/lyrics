@@ -54,3 +54,5 @@ The account header includes a circular Spotify profile photo (initial fallback).
 
 ## iPad Home Screen
 In Safari, use Share → Add to Home Screen, name it Lyrics, and add it. Remove and re-add older shortcuts to pick up the new icon and standalone launch mode. The manifest and Apple web-app metadata provide Home Screen support without offline caching. Spotify may require a fresh sign-in in the installed app.
+
+Synced lyric centering uses viewport geometry to stay aligned on iPad. Manually scrolling the lyric panel pauses automatic following; choose Follow lyrics to resume. A new song resumes following automatically.
