@@ -56,3 +56,19 @@ The account header includes a circular Spotify profile photo (initial fallback).
 In Safari, use Share → Add to Home Screen, name it Lyrics, and add it. Remove and re-add older shortcuts to pick up the new icon and standalone launch mode. The manifest and Apple web-app metadata provide Home Screen support without offline caching. Spotify may require a fresh sign-in in the installed app.
 
 Synced lyric centering uses viewport geometry to stay aligned on iPad. Manually scrolling the lyric panel pauses automatic following; choose Follow lyrics to resume. A new song resumes following automatically.
+
+## YouTube (published companion)
+
+Open https://yesslashno.github.io/lyrics/youtube.html on the laptop and choose **Get pairing code**. Download the updated Firefox ZIP from the pairing panel. In Firefox `about:debugging#/runtime/this-firefox`, remove the older local add-on, choose **Load Temporary Add-on**, and select the new ZIP. Open a music video, click the extension, paste the **Firefox pairing code**, then **Follow this tab**. The ZIP is temporarily installed until Firefox restarts; this is not yet a signed Mozilla distribution.
+
+Open the **screen link** from the pairing panel on the iPad. The laptop and iPad can use different networks; no local server is needed. Choose Spotify or YouTube in the header; the app uses the selected source, not automatic source detection. Keep Firefox and the laptop awake. It follows the chosen tab across playlists; other tabs are ignored. Stop in the extension clears playback. Disconnect YouTube revokes the pairing for all screens. Pairing expires after 30 days.
+
+YouTube uses the selected recording’s ordinary LRCLIB timings directly. No video-duration matching or automatic offsets are applied. Scroll manually to pause following; **Follow lyrics** resumes it. **Change lyrics** lets you correct the inferred title/artist or choose another recording.
+
+Cloud relay: `https://lyrics-youtube.hunkyard-dog.workers.dev/api`, Cloudflare Worker `lyrics-youtube`, D1 database `lyrics-youtube` (`9a95f75e-8457-4f6a-ba7d-abaad4bda0bb`) bound as `DB`. Schema/source and backend tests are `youtube-schema.sql`, `youtube-relay.js`, and `youtube-relay.test.js` in this repository. Backend tests use Node’s built-in SQLite support; use Node 22.13 or newer. The relay stores only the latest chosen video title/channel/clock plus hashed pairing keys. Viewer links and Firefox codes are separate; never publish actual pairing keys in this repository. Readers cannot write playback. Requests have size limits, pairing creation is rate limited, and expired sessions are cleared. Polling is every two seconds while the screen is open.
+
+## Add lyric timing (Spotify and YouTube)
+
+For plain lyrics, choose **Add timing**. Play the song and tap **Next line** as each line starts (Space also works). **Undo**, retapping any line, and editable seconds let you correct mistakes. Blank lines and standalone section labels do not require taps. **Use these timings** previews synchronized lyrics and remembers them on this browser/device. **Edit timing** reopens your saved work. Drafts autosave, capped at 30 recordings, and resume after reopening. **Download LRC** exports the timestamps.
+
+**Review & publish** opens the existing LRCLIB submission editor with your words and timestamps filled in. Check the recording, then explicitly choose **Publish to LRCLIB**. If YouTube metadata lacks an album, enter it in the review form. Public timestamps should match the named song recording; videos with intros or edits may differ. Private timings do not sync between devices; publishing makes them discoverable through LRCLIB. Nothing is published automatically.

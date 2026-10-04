@@ -1,4 +1,5 @@
-import {createLyricsEditor} from './lyrics-editor.js';
+import {createTimingEditor,savedTimings} from './lyrics-timing.js';
+import {createLyricsEditor} from './lyrics-editor.js?v=youtube-1';
 import {Spotify,position,formatTime} from './spotify.js?v=account-photo-2';
 import {Lyrics,parseLrc,activeLine,trackKey} from './lyrics.js';
 const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort,followingLyrics=true;
@@ -7,15 +8,19 @@ const lyricHeader=document.createElement('div'); lyricHeader.className='lyrics-h
 const lyricLabel=document.createElement('a'); lyricLabel.href='https://lrclib.net';lyricLabel.target='_blank';lyricLabel.rel='noopener noreferrer';lyricLabel.textContent='LYRICS · LRCLIB';
 const lyricRetry=document.createElement('button');lyricRetry.className='quiet';lyricRetry.textContent='Retry lyrics';lyricRetry.hidden=true;
 const lyricFollow=document.createElement('button');lyricFollow.className='quiet';lyricFollow.textContent='Follow lyrics';lyricFollow.hidden=true;
+const lyricTime=document.createElement('button');lyricTime.className='quiet';lyricTime.textContent='Add timing';lyricTime.hidden=true;
+let plainForTiming='';
 const lyricAdd=document.createElement('button');lyricAdd.className='quiet';lyricAdd.textContent='Add missing lyrics';lyricAdd.hidden=true;
 const editor=createLyricsEditor((track,value)=>{
   if(value)lyrics.cache.set(trackKey(track),{...value,published:true});
   if(trackKey(track)===lyricsKey)loadLyrics(track,true);
 });
+const timingEditor=createTimingEditor({readPlayback:()=>current?.item?{mediaKey:current.item.id,position:position(current,receivedAt),playing:current.is_playing,stale:current.is_playing && performance.now()-receivedAt>6000}:null,onSave:(track,value)=>{lyrics.cache.set(trackKey(track),value);if(trackKey(track)===lyricsKey)loadLyrics(track,true);},onPublish:(track,value)=>editor.open(track,value)});
+lyricTime.onclick=()=>timingEditor.open(current?.item,plainForTiming);
 lyricAdd.onclick=()=>editor.open(current?.item?.type==='track'?current.item:null);
 const lyricStatus=document.createElement('p');lyricStatus.className='lyrics-status';lyricStatus.setAttribute('role','status');
 const lyricScroll=document.createElement('div');lyricScroll.className='lyrics-scroll';lyricScroll.tabIndex=0;lyricScroll.setAttribute('aria-label','Song lyrics');
-const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricFollow,lyricRetry,lyricAdd);lyricHeader.append(lyricLabel,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
+const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricFollow,lyricTime,lyricRetry,lyricAdd);lyricHeader.append(lyricLabel,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
 function pauseFollowing(){if(!lyricLines.length)return;followingLyrics=false;lyricFollow.hidden=false;lyricScroll.scrollTo({top:lyricScroll.scrollTop,behavior:'auto'});}
 lyricScroll.addEventListener('wheel',pauseFollowing,{passive:true});
 lyricScroll.addEventListener('touchstart',pauseFollowing,{passive:true});
@@ -28,12 +33,14 @@ lyricRetry.onclick=()=>{lyrics.cache.delete(trackKey(current?.item));loadLyrics(
 async function loadLyrics(track,force=false) {
   const key=trackKey(track);if(key===lyricsKey && !force)return;
   lyricsKey=key;lyricAbort?.abort();lyricAbort=new AbortController();const controller=lyricAbort;
-  lyricLines=[];lineNodes=[];lastLine=-2;followingLyrics=true;lyricFollow.hidden=true;lyricScroll.replaceChildren();lyricScroll.scrollTop=0;
+  lyricLines=[];lineNodes=[];lastLine=-2;followingLyrics=true;lyricFollow.hidden=true;lyricTime.hidden=true;plainForTiming='';lyricScroll.replaceChildren();lyricScroll.scrollTop=0;
   lyricSection.hidden=!track;document.body.classList.toggle('with-lyrics',!!track);lyricRetry.hidden=true;lyricAdd.hidden=true;if(!track)return;
   lyricStatus.textContent='Finding lyrics…';
   const timeout=setTimeout(()=>controller.abort('timeout'),20000);
   try {
-    const result=await lyrics.get(track,controller.signal);if(key!==lyricsKey || controller!==lyricAbort)return;
+    let result=await lyrics.get(track,controller.signal);if(key!==lyricsKey || controller!==lyricAbort)return;
+    const own=savedTimings(track,result?.plainLyrics || '');if(own)result={...result,...own};
+    plainForTiming=result?.plainLyrics || '';lyricTime.hidden=!plainForTiming || !!result?.instrumental || (!!result?.syncedLyrics && !own);lyricTime.textContent=own?'Edit timing':'Add timing';
     lyricAdd.hidden=!!(result?.instrumental || result?.syncedLyrics || result?.plainLyrics);
     lyricRetry.hidden=lyricAdd.hidden;
     lyricAdd.textContent='Add missing lyrics';
@@ -124,7 +131,7 @@ async function connectSpotify() {
 }
 function signOut(message='Signed out. Connect again, then choose “Not you?” on Spotify to use a different account.') {
   generation++;clearTimeout(timer);blockedUntil=0;failures=0;
-  spotify.disconnect();editor.close();current=null;render(null);connected();
+  spotify.disconnect();editor.close();timingEditor.close();current=null;render(null);connected();
   $('account-name').removeAttribute('title');notice(message);$('connect').focus();$('connection').textContent='Made for listening.';
 }
 $('connect').onclick=connectSpotify;
