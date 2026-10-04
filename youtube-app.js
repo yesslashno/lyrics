@@ -1,3 +1,4 @@
+import {createScreensaver} from './screensaver.js';
 import {parseLrc,activeLine} from './lyrics.js';
 import {inferSong,defaultLyricsResult,lyricText,playbackPosition} from './youtube-model.js';
 const $=id=>document.getElementById(id);
@@ -11,6 +12,7 @@ if(!valid(pair.readToken))pair={};
 const fragment=new URLSearchParams(location.hash.slice(1));
 if(fragment.has('pair')){const readToken=fragment.get('pair');pair=valid(readToken)?(pair.readToken===readToken?pair:{readToken}):{};history.replaceState({},'',location.pathname);savePair();}
 let token=pair.readToken || '',playback=null,age=0,receivedAt=performance.now(),videoId='',videoKey='',searchAbort,results=[],selected=null,fetching=false,lines=[],nodes=[],lastLine=-2,followingLyrics=true;
+const screensaver=createScreensaver({isPlaying:()=>!!token && !!playback && !playback.paused && age+performance.now()-receivedAt<8000});
 const remembered=new Map();
 function savePair(){try{localStorage.setItem(STORAGE,JSON.stringify(pair));}catch{$('pair-status').textContent='This browser cannot remember pairing. Keep this page open.';}}
 function pairing(){const paired=!!token;$('pairing').hidden=paired;$('screen').hidden=!paired;$('pair-details').hidden=!paired;const writer=valid(pair.writeToken);$('writer-setup').hidden=!writer;$('read-only-setup').hidden=writer;if(writer)$('write-code').value=pair.writeToken;if(paired)$('viewer-link').value=location.origin+location.pathname+'#pair='+token;}
@@ -98,6 +100,7 @@ async function poll(){
     if(!response.ok)throw new Error('YouTube connection unavailable.');
     const data=await response.json();if(pairingToken!==token)return;
     age=data.ageMs || 0;receivedAt=performance.now();
+    if(data.playback && !data.playback.paused && age<8000)screensaver.activity();
     if(!data.playback){playback=null;searchAbort?.abort();videoId='';videoKey='';clearLyrics();$('results').replaceChildren();$('video-title').textContent='Open a music video.';$('channel').textContent='Use “Follow this tab” in the Firefox extension.';$('state').textContent='WAITING FOR YOUTUBE';$('connection').textContent='Paired · waiting for your chosen tab';$('video-link').hidden=true;return;}
     // Advertisements can replace the video element's clock. Hold the last song and lyrics.
     if(data.playback.ad){if(playback)playback={...playback,ad:true};$('state').textContent='ADVERTISEMENT';$('connection').textContent='YouTube ad · keeping the song lyrics open';return;}

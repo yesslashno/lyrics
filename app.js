@@ -1,3 +1,4 @@
+import {createScreensaver} from './screensaver.js';
 import {createTimingEditor,savedTimings} from './lyrics-timing.js';
 import {createLyricsEditor} from './lyrics-editor.js?v=youtube-2';
 import {Spotify,position,formatTime} from './spotify.js?v=account-photo-2';
@@ -66,6 +67,7 @@ function followLyrics(ms) {
 }
 const $=id=>document.getElementById(id), spotify=new Spotify();
 let current=null,receivedAt=0,timer,busy=false,generation=0,blockedUntil=0,failures=0,accountPending=false,accountName='';
+const screensaver=createScreensaver({isPlaying:()=>!!spotify.tokens() && !!current?.is_playing && performance.now()-receivedAt<10000});
 function notice(message='') { $('notice').textContent=message; }
 function connected() { const yes=!!spotify.tokens(); $('welcome').hidden=yes; $('player').hidden=!yes; $('account-controls').hidden=!yes; if(!yes){accountName='';setAccountPhoto();$('account-name').textContent='Spotify account';$('account-retry').hidden=true;} return yes; }
 function setAccountPhoto(url=null,name='') {

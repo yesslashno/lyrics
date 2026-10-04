@@ -12,3 +12,15 @@
 .lyrics-editor #editor-album{display:block;width:100%;padding:12px;font:16px 'DM Sans',sans-serif;background:#0f1812;color:#edf2e8;border:1px solid #50604f;border-radius:8px}
 
 .lyrics-editor #editor-metadata input{display:block;width:100%;padding:12px;font:16px system-ui;background:#0f1812;color:#edf2e8;border:1px solid #50604f;border-radius:8px}
+
+/* A dim idle display; transforms keep the rings drifting without layout work. */
+.screensaver[hidden]{display:none}
+.screensaver{position:fixed;inset:0;z-index:10000;width:100%;height:100%;margin:0;border:0;border-radius:0;padding:0;background:#070c09;color:#6b8174;cursor:pointer;overflow:hidden;touch-action:none}
+.screensaver:hover{background:#070c09;color:#6b8174}
+.screensaver-mark{position:absolute;left:0;top:0;width:180px;height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;font:10px system-ui,sans-serif;letter-spacing:3px;animation:idle-drift 67s linear infinite alternate}
+.screensaver-rings{width:84px;height:84px;border:2px solid #769781;border-radius:50%;display:grid;place-items:center}
+.screensaver-rings:after{content:'';width:44px;height:44px;border:2px solid #769781;border-radius:50%}
+.screensaver-hint{position:absolute;bottom:calc(24px + env(safe-area-inset-bottom,0px));left:0;right:0;font:12px system-ui,sans-serif;letter-spacing:1px;color:#526457}
+.screensaver-open{overflow:hidden}
+@keyframes idle-drift{0%{transform:translate(8vw,8vh)}25%{transform:translate(calc(100vw - 200px),30vh)}50%{transform:translate(30vw,calc(100vh - 230px))}75%{transform:translate(12px,45vh)}100%{transform:translate(calc(100vw - 200px),12vh)}}
+@media(prefers-reduced-motion:reduce){.screensaver-mark{animation:none;left:calc(50% - 90px);top:calc(50% - 90px)}}
