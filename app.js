@@ -16,7 +16,7 @@ lyricAdd.onclick=()=>editor.open(current?.item?.type==='track'?current.item:null
 const lyricStatus=document.createElement('p');lyricStatus.className='lyrics-status';lyricStatus.setAttribute('role','status');
 const lyricScroll=document.createElement('div');lyricScroll.className='lyrics-scroll';lyricScroll.tabIndex=0;lyricScroll.setAttribute('aria-label','Song lyrics');
 const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricFollow,lyricRetry,lyricAdd);lyricHeader.append(lyricLabel,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
-function pauseFollowing(){if(!lyricLines.length)return;followingLyrics=false;lyricFollow.hidden=false;}
+function pauseFollowing(){if(!lyricLines.length)return;followingLyrics=false;lyricFollow.hidden=false;lyricScroll.scrollTo({top:lyricScroll.scrollTop,behavior:'auto'});}
 lyricScroll.addEventListener('wheel',pauseFollowing,{passive:true});
 lyricScroll.addEventListener('touchstart',pauseFollowing,{passive:true});
 lyricScroll.addEventListener('pointerdown',pauseFollowing,{passive:true});
