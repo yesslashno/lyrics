@@ -1,7 +1,7 @@
 import {createScreensaver} from './screensaver.js';
 import {createTimingEditor,savedTimings} from './lyrics-timing.js';
 import {createLyricsEditor} from './lyrics-editor.js?v=youtube-2';
-import {Spotify,position,formatTime} from './spotify.js?v=session-2';
+import {Spotify,position,formatTime} from './spotify.js?v=accounts-1';
 import {Lyrics,parseLrc,activeLine,trackKey} from './lyrics.js';
 const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort,followingLyrics=true;
 const lyricSection=document.createElement('section'); lyricSection.id='lyrics'; lyricSection.hidden=true;
@@ -66,10 +66,10 @@ function followLyrics(ms) {
   }
 }
 const $=id=>document.getElementById(id), spotify=new Spotify();
-let current=null,receivedAt=0,timer,busy=false,generation=0,blockedUntil=0,failures=0,accountPending=false,accountName='';
+let current=null,receivedAt=0,timer,busy=null,generation=0,blockedUntil=0,failures=0,accountPending=null,accountName='';
 const screensaver=createScreensaver({isPlaying:()=>!!spotify.tokens() && !!current?.is_playing && performance.now()-receivedAt<10000});
 function notice(message='') { $('notice').textContent=message; }
-function connected() { const yes=!!spotify.tokens(); $('welcome').hidden=yes; $('player').hidden=!yes; $('account-controls').hidden=!yes; if(!yes){accountName='';setAccountPhoto();$('account-name').textContent='Spotify account';$('account-retry').hidden=true;} return yes; }
+function connected() { const yes=!!spotify.tokens(); $('welcome').hidden=yes; $('player').hidden=!yes; $('account-controls').hidden=!yes && !spotify.accounts().length;$('disconnect').hidden=!yes; if(!yes){accountName='';setAccountPhoto();$('account-name').textContent=spotify.accounts().length?'Spotify accounts':'Spotify account';$('account-retry').hidden=true;} return yes; }
 function setAccountPhoto(url=null,name='') {
   const photo=$('account-photo');photo.hidden=!url;
   $('account-initial').hidden=!!url;$('account-initial').textContent=name.trim().charAt(0).toUpperCase() || '♫';
@@ -77,17 +77,18 @@ function setAccountPhoto(url=null,name='') {
 }
 $('account-photo').onerror=()=>setAccountPhoto(null,accountName);
 async function loadAccount() {
-  if(accountPending || !spotify.tokens())return;
-  accountPending=true;const version=generation;
-  $('account-name').textContent='Loading Spotify account…';$('account-retry').hidden=true;
+  if(accountPending===generation || !spotify.tokens())return;
+  const version=generation;accountPending=version;
+  const cached=spotify.accounts().find(account=>account.active);accountName=cached?.name || '';setAccountPhoto(cached?.image,accountName);
+  $('account-name').textContent=cached && !cached.id.startsWith('pending:') && cached.id!=='legacy'?`Spotify · ${cached.name}`:'Loading Spotify account…';$('account-retry').hidden=true;
   try {
     const profile=await spotify.profile();if(version!==generation)return;
     accountName=profile.name;$('account-name').textContent=`Spotify · ${accountName}`;
     $('account-name').title=accountName;setAccountPhoto(profile.image,accountName);
   }catch {
     if(version!==generation)return;
-    $('account-name').textContent='Spotify · name unavailable';$('account-retry').hidden=false;
-  }finally {accountPending=false;}
+    $('account-name').textContent=accountName?`Spotify · ${accountName}`:'Spotify · name unavailable';$('account-retry').hidden=false;
+  }finally {if(accountPending===version)accountPending=null;}
 }
 $('account-retry').onclick=loadAccount;
 function render(data) {
@@ -110,9 +111,9 @@ function render(data) {
 function tick() { const ms=position(current,receivedAt); $('elapsed').textContent=formatTime(ms); $('progress').max=current?.item?.duration_ms || 1; $('progress').value=ms; followLyrics(ms); }
 async function poll() {
   clearTimeout(timer);
-  if(busy || !connected()) return;
+  if(busy===generation || !connected()) return;
   if(Date.now()<blockedUntil) { timer=setTimeout(poll,blockedUntil-Date.now()); return; }
-  busy=true; const version=generation; let delay=5000;
+  const version=generation;busy=version; let delay=5000;
   try {
     const data=await spotify.nowPlaying();
     if(version!==generation) return;
@@ -123,7 +124,7 @@ async function poll() {
     $('connection').textContent='Waiting for connection';
     if(!spotify.tokens()) { connected(); return; }
     delay=error.retryMs || Math.min(60000,5000*2**Math.min(++failures,4)); blockedUntil=Date.now()+delay;
-  } finally { busy=false; if(version===generation && spotify.tokens()) timer=setTimeout(poll,document.hidden?Math.max(delay,15000):delay); }
+  } finally { if(busy===version)busy=null; if(version===generation && spotify.tokens()) timer=setTimeout(poll,document.hidden?Math.max(delay,15000):delay); }
 }
 async function connectSpotify(switchAccount=false) {
   if($('connect').disabled)return;
@@ -131,14 +132,48 @@ async function connectSpotify(switchAccount=false) {
   try {await spotify.login(switchAccount);}catch(error){notice(error.message);}
   finally {$('connect').disabled=false;}
 }
-function signOut(message='Signed out. Connect again, then choose “Not you?” on Spotify to use a different account.') {
+function signOut(message='This account is signed out. Other saved accounts are available under Switch.') {
   generation++;clearTimeout(timer);blockedUntil=0;failures=0;
   spotify.disconnect();editor.close();timingEditor.close();current=null;render(null);connected();
   $('account-name').removeAttribute('title');notice(message);$('connect').focus();$('connection').textContent='Made for listening.';
 }
 $('connect').onclick=()=>connectSpotify();
 $('disconnect').onclick=()=>signOut();
-$('switch-account').onclick=()=>{signOut('Choose “Not you?” on Spotify to switch accounts.');connectSpotify(true);};
+$('switch-account').onclick=openAccounts;
+
+const picker=document.createElement('div');picker.className='account-picker';picker.hidden=true;picker.setAttribute('role','dialog');picker.setAttribute('aria-modal','true');picker.setAttribute('aria-labelledby','picker-title');
+const panel=document.createElement('section');panel.className='account-picker-panel';
+const pickerTitle=document.createElement('h2');pickerTitle.id='picker-title';pickerTitle.textContent='Spotify accounts';
+const pickerHelp=document.createElement('p');pickerHelp.textContent='Choose an account to follow. Connections are remembered on this device.';
+const accountList=document.createElement('div');accountList.className='saved-accounts';
+const addAccount=document.createElement('button');addAccount.textContent='Add account';
+const closePicker=document.createElement('button');closePicker.className='quiet';closePicker.textContent='Close';
+panel.append(pickerTitle,pickerHelp,accountList,addAccount,closePicker);picker.append(panel);document.body.append(picker);
+function hideAccounts(){picker.hidden=true;$('switch-account').focus();}
+function openAccounts(){
+  accountList.replaceChildren();
+  for(const account of spotify.accounts()){
+    const row=document.createElement('div');row.className='saved-account';
+    const choose=document.createElement('button');choose.className='account-choice';
+    const avatar=document.createElement('span');avatar.className='account-avatar';avatar.setAttribute('aria-hidden','true');avatar.textContent=account.name.charAt(0).toUpperCase() || '♫';
+    if(account.image){const initial=avatar.textContent;avatar.textContent='';const image=document.createElement('img');image.src=account.image;image.alt='';image.onerror=()=>{image.remove();avatar.textContent=initial;};avatar.append(image);}
+    const label=document.createElement('span');label.textContent=account.name;
+    const status=document.createElement('small');status.textContent=account.needsLogin?'Reconnect':account.active?'Selected':'Switch to account';
+    choose.append(avatar,label,status);choose.setAttribute('aria-label',account.name+' · '+status.textContent);
+    choose.onclick=()=>{hideAccounts();if(account.needsLogin){notice('Choose this account on Spotify; use “Not you?” if needed.');connectSpotify(true);}else chooseAccount(account.id);};
+    const remove=document.createElement('button');remove.className='quiet';remove.textContent='Remove';remove.setAttribute('aria-label','Remove '+account.name);
+    remove.onclick=()=>{const active=account.active;spotify.removeAccount(account.id);if(active)resetAccountView();connected();openAccounts();};
+    row.append(choose,remove);accountList.append(row);
+  }
+  picker.hidden=false;(accountList.querySelector('button') || addAccount).focus();
+}
+function resetAccountView(){generation++;clearTimeout(timer);blockedUntil=0;failures=0;editor.close();timingEditor.close();current=null;render(null);accountPending=null;accountName='';setAccountPhoto();connected();}
+function chooseAccount(id){spotify.selectAccount(id);resetAccountView();notice();loadAccount();poll();}
+addAccount.onclick=()=>{hideAccounts();notice('Choose “Not you?” on Spotify to add a different account.');connectSpotify(true);};
+closePicker.onclick=hideAccounts;
+picker.addEventListener('click',event=>{if(event.target===picker)hideAccounts();});
+picker.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();hideAccounts();}else if(event.key==='Tab'){const buttons=[...picker.querySelectorAll('button')],first=buttons[0],last=buttons.at(-1);if(event.shiftKey && document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first.focus();}}});
+
 $('art').onerror=()=>{ $('art').hidden=true; $('art-placeholder').hidden=false; };
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) poll();});
 window.addEventListener('online',()=>poll());

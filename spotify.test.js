@@ -79,3 +79,42 @@ test('a late profile response cannot restore the old account after switching',as
   const original=globalThis.location;let target;globalThis.location={assign:url=>{target=new URL(url);}};
   try{await new Spotify(store(),store()).login();assert.equal(target.searchParams.has('show_dialog'),false);}finally{if(original===undefined)delete globalThis.location;else globalThis.location=original;}
  });
+
+const accountsKey='companion.spotify.accounts';
+function multiple(request=async()=>new Response(null,{status:204})){
+ const storage=store();storage.setItem(accountsKey,JSON.stringify({activeId:'house',accounts:[{id:'house',name:'House',image:'https://example.com/house.jpg',tokens:{access_token:'house-access',refresh_token:'house-refresh',expires_at:Date.now()+3600000}},{id:'personal',name:'Personal',image:null,tokens:{access_token:'personal-access',refresh_token:'personal-refresh',expires_at:Date.now()-1000}}]}));return new Spotify(storage,store(),request);
+}
+test('existing single connection migrates without losing credentials and gains profile identity',async()=>{
+ const client=setup(async()=>Response.json({id:'house',display_name:'House',images:[{url:'https://example.com/photo.jpg'}]}));
+ assert.equal(client.tokens().refresh_token,'refresh');assert.equal(client.storage.getItem(key),null);await client.profile();
+ assert.deepEqual(client.accounts(),[{id:'house',name:'House',image:'https://example.com/photo.jpg',active:true,needsLogin:false}]);
+ assert.equal(new Spotify(client.storage,store()).tokens().refresh_token,'refresh');
+});
+test('account selection refreshes only the selected account and survives reopening',async()=>{
+ const calls=[];const client=multiple(async(url,options)=>{calls.push([url,options]);if(url.includes('/api/token')){assert.equal(options.body.get('refresh_token'),'personal-refresh');return Response.json({access_token:'personal-new',refresh_token:'personal-rotated',expires_in:3600});}assert.equal(options.headers.Authorization,'Bearer personal-new');return new Response(null,{status:204});});
+ client.selectAccount('personal');assert.equal(await client.nowPlaying(),null);assert.equal(calls.length,2);
+ const reopen=new Spotify(client.storage,store());assert.equal(reopen.tokens().refresh_token,'personal-rotated');reopen.selectAccount('house');assert.equal(reopen.tokens().refresh_token,'house-refresh');
+ assert.equal(client.accounts()[0].needsLogin,false);assert.equal('tokens' in client.accounts()[0],false);
+});
+test('late refresh and profile responses cannot alter a newly selected account',async()=>{
+ let finish;const client=multiple(()=>new Promise(resolve=>{finish=resolve;}));client.selectAccount('personal');const refresh=client.refresh();client.selectAccount('house');finish(Response.json({access_token:'late',refresh_token:'late-refresh',expires_in:3600}));await assert.rejects(refresh,/Signed out/);assert.equal(client.tokens().access_token,'house-access');client.selectAccount('personal');assert.equal(client.tokens().refresh_token,'personal-refresh');
+ client.selectAccount('house');const profile=client.profile();client.selectAccount('personal');finish(Response.json({id:'house',display_name:'Wrong late name'}));await assert.rejects(profile,/Signed out/);assert.equal(client.accounts()[0].name,'House');
+});
+test('rejected refresh marks only that account for reconnect and leaves others usable',async()=>{
+ const client=multiple(async()=>Response.json({error:'invalid_grant'},{status:400}));client.selectAccount('personal');await assert.rejects(client.refresh());assert.equal(client.tokens(),null);assert.equal(client.accounts().find(a=>a.id==='personal').needsLogin,true);client.selectAccount('house');assert.equal(client.tokens().access_token,'house-access');
+});
+test('adding an account preserves previous connections; duplicate identity replaces only that account',async()=>{
+ const client=multiple(async url=>url.includes('/api/token')?Response.json({access_token:'added',refresh_token:'added-refresh',expires_in:3600}):Response.json({id:'personal',display_name:'Personal',images:[]}));
+ await client.token({grant_type:'authorization_code',code:'fake'});assert.equal(client.accounts().length,3);await client.profile();assert.equal(client.accounts().length,2);assert.equal(client.tokens().refresh_token,'added-refresh');client.selectAccount('house');assert.equal(client.tokens().refresh_token,'house-refresh');
+});
+test('cancelled add-account authorization retains selected account and saved connections',async()=>{
+ const client=multiple();const original=globalThis.location;globalThis.location={assign:()=>{}};
+ try{await client.login(true);assert.equal(client.tokens().access_token,'house-access');const pending=JSON.parse(client.session.getItem('companion.pkce'));await assert.rejects(client.callback(new URLSearchParams({state:pending.state,error:'access_denied'})),/cancelled/);assert.equal(client.accounts().length,2);assert.equal(client.tokens().access_token,'house-access');}finally{if(original===undefined)delete globalThis.location;else globalThis.location=original;}
+});
+test('logout and remove forget only the chosen account and reject pending responses',async()=>{
+ const client=multiple();client.removeAccount('personal');assert.equal(client.tokens().access_token,'house-access');assert.equal(client.accounts().length,1);client.disconnect();assert.equal(client.tokens(),null);assert.deepEqual(client.accounts(),[]);
+ const other=multiple();other.disconnect();assert.equal(other.accounts().length,1);other.selectAccount('personal');assert.equal(other.tokens().refresh_token,'personal-refresh');
+});
+test('a selection from another tab cannot receive a late token belonging to the former account',async()=>{
+ let finish;const client=multiple(()=>new Promise(resolve=>{finish=resolve;}));client.selectAccount('personal');const pending=client.refresh();const other=new Spotify(client.storage,store());other.selectAccount('house');finish(Response.json({access_token:'late-personal',expires_in:3600}));await assert.rejects(pending,/Signed out/);assert.equal(client.tokens().access_token,'house-access');
+});
