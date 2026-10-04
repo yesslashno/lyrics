@@ -10,12 +10,13 @@ export class Spotify {
   constructor(storage=localStorage,session=sessionStorage,request=(...args)=>globalThis.fetch(...args)) { this.storage=storage; this.session=session; this.request=request; this.refreshing=null; this.generation=0; }
   tokens() { try { return JSON.parse(this.storage.getItem(KEY)); } catch { return null; } }
   disconnect() { this.generation++; this.refreshing=null; this.storage.removeItem(KEY); this.session.removeItem('companion.pkce'); }
-  async login() {
+  async login(switchAccount=false) {
     this.disconnect();
     const verifier=base64url(crypto.getRandomValues(new Uint8Array(64)));
     const state=base64url(crypto.getRandomValues(new Uint8Array(32)));
     this.session.setItem('companion.pkce',JSON.stringify({verifier,state,created:Date.now()}));
-    const params=new URLSearchParams({client_id:CLIENT_ID,response_type:'code',redirect_uri:REDIRECT_URI,scope:'user-read-currently-playing',show_dialog:'true',state,code_challenge_method:'S256',code_challenge:await challenge(verifier)});
+    const params=new URLSearchParams({client_id:CLIENT_ID,response_type:'code',redirect_uri:REDIRECT_URI,scope:'user-read-currently-playing',state,code_challenge_method:'S256',code_challenge:await challenge(verifier)});
+    if(switchAccount)params.set('show_dialog','true');
     location.assign(`https://accounts.spotify.com/authorize?${params}`);
   }
   async callback(params) {
@@ -37,7 +38,18 @@ export class Spotify {
     const version=this.generation;
     const response=await this.timedRequest('https://accounts.spotify.com/api/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:CLIENT_ID,...fields})});
     if(version!==this.generation) throw new SpotifyError('Signed out. Please connect again.',401);
-    if (!response.ok) { if(response.status===400 || response.status===401) this.disconnect(); throw new SpotifyError('Spotify could not renew your sign-in. Please reconnect.',response.status); }
+    if (!response.ok) {
+      let error;try{error=await response.json();}catch{}
+      if(version!==this.generation)throw new SpotifyError('Signed out. Please connect again.',401);
+      // Only a rejected refresh grant proves the saved session is unusable.
+      // API authorization errors, outages and rate limits must not delete it.
+      if(fields.grant_type==='refresh_token' && error?.error==='invalid_grant'){
+        this.disconnect();
+        throw new SpotifyError('Spotify rejected the saved sign-in. Please connect again.',401);
+      }
+      const retryMs=response.status===429?Math.max(5000,(Number(response.headers.get('Retry-After')) || 30)*1000):0;
+      throw new SpotifyError('Spotify could not renew the connection yet. Your sign-in is saved; retrying automatically.',response.status,retryMs);
+    }
     const data=await response.json();
     if(version!==this.generation) throw new SpotifyError('Signed out. Please connect again.',401);
     this.storage.setItem(KEY,JSON.stringify({access_token:data.access_token,refresh_token:data.refresh_token || this.tokens()?.refresh_token,expires_at:Date.now()+data.expires_in*1000}));

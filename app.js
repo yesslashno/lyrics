@@ -1,7 +1,7 @@
 import {createScreensaver} from './screensaver.js';
 import {createTimingEditor,savedTimings} from './lyrics-timing.js';
 import {createLyricsEditor} from './lyrics-editor.js?v=youtube-2';
-import {Spotify,position,formatTime} from './spotify.js?v=account-photo-2';
+import {Spotify,position,formatTime} from './spotify.js?v=session-2';
 import {Lyrics,parseLrc,activeLine,trackKey} from './lyrics.js';
 const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort,followingLyrics=true;
 const lyricSection=document.createElement('section'); lyricSection.id='lyrics'; lyricSection.hidden=true;
@@ -121,14 +121,14 @@ async function poll() {
     if(version!==generation) return;
     notice(error.name==='TimeoutError' || error.name==='TypeError' ? 'Connection interrupted. Trying again automatically…' : error.message);
     $('connection').textContent='Waiting for connection';
-    if(error.status===401 || !spotify.tokens()) { spotify.disconnect(); connected(); return; }
+    if(!spotify.tokens()) { connected(); return; }
     delay=error.retryMs || Math.min(60000,5000*2**Math.min(++failures,4)); blockedUntil=Date.now()+delay;
   } finally { busy=false; if(version===generation && spotify.tokens()) timer=setTimeout(poll,document.hidden?Math.max(delay,15000):delay); }
 }
-async function connectSpotify() {
+async function connectSpotify(switchAccount=false) {
   if($('connect').disabled)return;
   $('connect').disabled=true;
-  try {await spotify.login();}catch(error){notice(error.message);}
+  try {await spotify.login(switchAccount);}catch(error){notice(error.message);}
   finally {$('connect').disabled=false;}
 }
 function signOut(message='Signed out. Connect again, then choose “Not you?” on Spotify to use a different account.') {
@@ -136,9 +136,9 @@ function signOut(message='Signed out. Connect again, then choose “Not you?” 
   spotify.disconnect();editor.close();timingEditor.close();current=null;render(null);connected();
   $('account-name').removeAttribute('title');notice(message);$('connect').focus();$('connection').textContent='Made for listening.';
 }
-$('connect').onclick=connectSpotify;
+$('connect').onclick=()=>connectSpotify();
 $('disconnect').onclick=()=>signOut();
-$('switch-account').onclick=()=>{signOut('Choose “Not you?” on Spotify to switch accounts.');connectSpotify();};
+$('switch-account').onclick=()=>{signOut('Choose “Not you?” on Spotify to switch accounts.');connectSpotify(true);};
 $('art').onerror=()=>{ $('art').hidden=true; $('art-placeholder').hidden=false; };
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) poll();});
 window.addEventListener('online',()=>poll());

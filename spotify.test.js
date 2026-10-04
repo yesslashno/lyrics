@@ -15,7 +15,7 @@ test('valid callback exchanges PKCE code without a secret',async()=>{const clien
 test('expired token refreshes and retains refresh token',async()=>{let calls=0;const client=setup(async(url,options)=>{calls++;if(url.includes('/api/token')){assert.equal(options.body.get('grant_type'),'refresh_token');return Response.json({access_token:'new',expires_in:3600});}assert.equal(options.headers.Authorization,'Bearer new');return new Response(null,{status:204});},true);assert.equal(await client.nowPlaying(),null);assert.equal(client.tokens().refresh_token,'refresh');assert.equal(calls,2);});
 test('401 refreshes once then returns new track',async()=>{let calls=0;const client=setup(async url=>{calls++;if(url.includes('/api/token'))return Response.json({access_token:'new',expires_in:3600});return calls===1?new Response(null,{status:401}):Response.json({item:{name:'Next song'}});});assert.equal((await client.nowPlaying()).item.name,'Next song');assert.equal(calls,3);});
 test('rate limiting respects Spotify retry delay',async()=>{const client=setup(async()=>new Response(null,{status:429,headers:{'Retry-After':'120'}}));await assert.rejects(client.nowPlaying(),error=>error.status===429 && error.retryMs===120000);});
-test('invalid refresh clears the saved session',async()=>{const client=setup(async()=>new Response(null,{status:400}),true);await assert.rejects(client.nowPlaying());assert.equal(client.tokens(),null);});
+test('invalid refresh clears the saved session',async()=>{const client=setup(async()=>Response.json({error:'invalid_grant'},{status:400}),true);await assert.rejects(client.nowPlaying());assert.equal(client.tokens(),null);});
 test('playback clock follows playing, pauses, duration and stale responses',()=>{const data={progress_ms:1000,is_playing:true,item:{duration_ms:10000}};assert.equal(position(data,0,2000),3000);assert.equal(position({...data,is_playing:false},0,2000),1000);assert.equal(position(data,0,20000),7000);assert.equal(position({...data,progress_ms:9000},0,2000),10000);assert.equal(formatTime(65000),'1:05');});
 test('older Safari without AbortSignal.timeout can sign in and fetch playback',async()=>{
   const descriptor=Object.getOwnPropertyDescriptor(AbortSignal,'timeout');
@@ -46,7 +46,7 @@ test('logout removes tokens and PKCE and pending refresh cannot restore them',as
 test('reconnecting requests Spotify authorization dialog with PKCE',async()=>{
   const original=globalThis.location;let target;
   globalThis.location={assign:url=>{target=new URL(url);}};
-  try {const client=new Spotify(store(),store());await client.login();assert.equal(target.searchParams.get('show_dialog'),'true');assert.equal(target.searchParams.get('code_challenge_method'),'S256');assert.ok(client.session.getItem('companion.pkce'));}
+  try {const client=new Spotify(store(),store());await client.login(true);assert.equal(target.searchParams.get('show_dialog'),'true');assert.equal(target.searchParams.get('code_challenge_method'),'S256');assert.ok(client.session.getItem('companion.pkce'));}
   finally {if(original===undefined)delete globalThis.location;else globalThis.location=original;}
 });
 test('account name uses the authorized profile and falls back to ID',async()=>{
@@ -59,3 +59,23 @@ test('profile refreshes expired tokens and retries unauthorized once',async()=>{
 test('a late profile response cannot restore the old account after switching',async()=>{
  let finish;const client=setup(()=>new Promise(resolve=>{finish=resolve;}));const pending=client.profile();client.disconnect();finish(Response.json({display_name:'Old account'}));await assert.rejects(pending,/Signed out/);assert.equal(client.tokens(),null);
 });
+
+ test('renewal failures preserve saved session and a later retry succeeds',async()=>{
+  for(const status of [400,401,429,500,503]){
+   let fail=true;const client=setup(async url=>{
+    if(url.includes('/api/token'))return fail?Response.json({error:'temporarily_unavailable'},{status,headers:{'Retry-After':'120'}}):Response.json({access_token:'renewed',refresh_token:'rotated',expires_in:3600});
+    return new Response(null,{status:204});
+   },true);
+   await assert.rejects(client.nowPlaying(),e=>e.status===status && (status!==429 || e.retryMs===120000));assert.equal(client.tokens().refresh_token,'refresh');
+   fail=false;assert.equal(await client.nowPlaying(),null);assert.equal(client.tokens().refresh_token,'rotated');
+  }
+ });
+ test('next-day reopen refreshes saved tokens without interactive login',async()=>{
+  const storage=store();storage.setItem(key,JSON.stringify({access_token:'yesterday',refresh_token:'saved',expires_at:Date.now()-86400000}));
+  const client=new Spotify(storage,store(),async url=>url.includes('/api/token')?Response.json({access_token:'today',expires_in:3600}):new Response(null,{status:204}));
+  assert.equal(await client.nowPlaying(),null);assert.equal(client.tokens().refresh_token,'saved');
+ });
+ test('ordinary connect permits existing Spotify session without forcing the account dialog',async()=>{
+  const original=globalThis.location;let target;globalThis.location={assign:url=>{target=new URL(url);}};
+  try{await new Spotify(store(),store()).login();assert.equal(target.searchParams.has('show_dialog'),false);}finally{if(original===undefined)delete globalThis.location;else globalThis.location=original;}
+ });
