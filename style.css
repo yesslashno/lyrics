@@ -10,3 +10,5 @@
 
 .source-nav{display:flex;gap:14px;align-items:center;font-size:13px}.source-nav a{color:#91a397;text-decoration:none;padding:10px 0}.source-nav a[aria-current=page]{color:#c5e4b5;border-bottom:1px solid #c5e4b5}
 .lyrics-editor #editor-album{display:block;width:100%;padding:12px;font:16px 'DM Sans',sans-serif;background:#0f1812;color:#edf2e8;border:1px solid #50604f;border-radius:8px}
+
+.lyrics-editor #editor-metadata input{display:block;width:100%;padding:12px;font:16px system-ui;background:#0f1812;color:#edf2e8;border:1px solid #50604f;border-radius:8px}

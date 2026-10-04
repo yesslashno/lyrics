@@ -1,14 +1,14 @@
 import {parseLrc,activeLine} from './lyrics.js';
 import {inferSong,defaultLyricsResult,lyricText,playbackPosition} from './youtube-model.js';
 const $=id=>document.getElementById(id);
-import {createLyricsEditor} from './lyrics-editor.js?v=youtube-1';
+import {createLyricsEditor} from './lyrics-editor.js?v=youtube-2';
 import {createTimingEditor,savedTimings,timingKey} from './lyrics-timing.js?v=youtube-1';
 const API='https://lyrics-youtube.hunkyard-dog.workers.dev/api',STORAGE='companion.youtube.pair';
 const valid=value=>/^[a-f0-9]{48}$/.test(value || '');
 let pair;try{pair=JSON.parse(localStorage.getItem(STORAGE)) || {};}catch{pair={};}
 if(!valid(pair.readToken))pair={};
 const fragment=new URLSearchParams(location.hash.slice(1));
-if(fragment.has('pair')){const readToken=fragment.get('pair');pair=valid(readToken)?{readToken}:{};history.replaceState({},'',location.pathname);savePair();}
+if(fragment.has('pair')){const readToken=fragment.get('pair');pair=valid(readToken)?(pair.readToken===readToken?pair:{readToken}):{};history.replaceState({},'',location.pathname);savePair();}
 let token=pair.readToken || '',playback=null,age=0,receivedAt=performance.now(),videoId='',videoKey='',searchAbort,results=[],selected=null,fetching=false,lines=[],nodes=[],lastLine=-2,followingLyrics=true;
 const remembered=new Map();
 function savePair(){try{localStorage.setItem(STORAGE,JSON.stringify(pair));}catch{$('pair-status').textContent='This browser cannot remember pairing. Keep this page open.';}}
@@ -21,16 +21,18 @@ for(const [button,input] of [['copy-code','write-code'],['copy-link','viewer-lin
 $('unpair').onclick=async()=>{const old=token;$('unpair').disabled=true;try{const response=await api('/playback',{method:'DELETE',headers:{Authorization:'Bearer '+old}});if(!response.ok && response.status!==401)throw new Error();if(token!==old)return;resetPair();}catch{$('connection').textContent='Couldn’t disconnect. Check the connection and try again.';}finally{$('unpair').disabled=false;}};
 function resetPair(){pair={};token='';savePair();searchAbort?.abort();timingEditor.close();publisher.close();playback=null;videoId='';videoKey='';remembered.clear();clearLyrics();pairing();}
 function trackFor(result){return {id:'lrclib:'+result.id,type:'track',name:result.trackName,artists:[{name:result.artistName}],album:{name:result.albumName || ''},duration_ms:Math.round(result.duration*1000)};}
-function applyTiming(track,value){if(selected && timingKey(trackFor(selected))===timingKey(track)){selected={...selected,...value};chooseSong(selected);}}
+function applyTiming(track,value){if(track.id==='youtube:'+videoKey){chooseSong({id:'contribution:'+videoKey,trackName:track.name,artistName:track.artists[0].name,albumName:track.album.name,duration:track.duration_ms/1000,...value});return;}if(selected && timingKey(trackFor(selected))===timingKey(track)){selected={...selected,...value};chooseSong(selected);}}
 const publisher=createLyricsEditor(applyTiming);
 const timingEditor=createTimingEditor({readPlayback:()=>playback && selected?{mediaKey:videoKey+':'+selected.id,position:playbackPosition(playback,age,performance.now()-receivedAt),playing:!playback.paused,ad:playback.ad,stale:age+performance.now()-receivedAt>8000}:null,onSave:applyTiming,onPublish:(track,value)=>publisher.open(track,value)});
 $('add-timing').onclick=()=>{if(selected)timingEditor.open(trackFor(selected),selected.plainLyrics);};
+$('add-missing').onclick=()=>{if(!playback || playback.ad)return;const name=$('song-title').value.trim(),artist=$('song-artist').value.trim();publisher.open({id:'youtube:'+videoKey,type:'track',name,artists:[{name:artist}],album:{name:''},duration_ms:Math.round(playback.duration*1000)});};
 pairing();
 function time(seconds){const value=Math.max(0,Math.floor(seconds));return Math.floor(value/60)+':'+String(value%60).padStart(2,'0');}
-function clearLyrics(){selected=null;lines=[];nodes=[];lastLine=-2;followingLyrics=true;$('follow-lyrics').hidden=true;$('add-timing').hidden=true;document.body.classList.remove('is-synced');$('lyrics-scroll').replaceChildren();$('lyrics-status').textContent='Lyrics appear once a song is matched.';}
+function clearLyrics(){selected=null;lines=[];nodes=[];lastLine=-2;followingLyrics=true;$('follow-lyrics').hidden=true;$('add-timing').hidden=true;$('add-missing').hidden=true;document.body.classList.remove('is-synced');$('lyrics-scroll').replaceChildren();$('lyrics-status').textContent='Lyrics appear once a song is matched.';}
 function chooseSong(result){
   const own=savedTimings(trackFor(result),result.plainLyrics || '');if(own)result={...result,...own};
   $('add-timing').hidden=!(Number.isFinite(result.duration) && result.duration>0) || !result.plainLyrics || result.instrumental || (!!result.syncedLyrics && !own);$('add-timing').textContent=own?'Edit timing':'Add timing';
+  $('add-missing').hidden=true;
   selected=result;remembered.set(videoKey,result);if(remembered.size>50)remembered.delete(remembered.keys().next().value);
   lines=parseLrc(result.syncedLyrics || '');lastLine=-2;followingLyrics=true;$('follow-lyrics').hidden=true;document.body.classList.toggle('is-synced',!!lines.length);
   $('lyrics-status').textContent=result.artistName+' · '+result.trackName+' — '+(result.instrumental?'Instrumental':lines.length?'Synced lyrics · following the video':'Plain lyrics · scroll at your own pace');
@@ -41,7 +43,7 @@ function chooseSong(result){
 }
 async function searchLyrics(){
   searchAbort?.abort();const controller=new AbortController();searchAbort=controller;const target=videoKey;const song={title:$('song-title').value.trim(),artist:$('song-artist').value.trim()};
-  if(!song.title)return;
+  if(!song.title)return;clearLyrics();
   $('search-status').textContent='Finding lyrics…';$('results').replaceChildren();$('search').disabled=true;
   const timer=setTimeout(()=>controller.abort(),15000);
   try{
@@ -53,9 +55,9 @@ async function searchLyrics(){
     for(const result of results){const button=document.createElement('button');button.type='button';button.className='result';button.textContent=result.artistName+' · '+result.trackName;button.setAttribute('aria-pressed',String(selected?.id===result.id));button.onclick=()=>chooseSong(result);$('results').append(button);}
     const found=defaultLyricsResult(results,song);
     $('search-status').textContent=found?'Lyrics loaded. Choose another result if the song is wrong.':'No lyrics found. Try correcting the song title and artist.';
-    if(found)chooseSong(found);else $('matching').open=true;
+    if(found)chooseSong(found);else {$('matching').open=true;$('add-missing').hidden=false;$('lyrics-status').textContent='No lyrics found. You can add them for this recording.';}
   }catch(error){if(controller!==searchAbort || target!==videoKey)return;$('search-status').textContent=error.name==='AbortError'?'Search timed out. Try again.':error.message;}
-  finally{clearTimeout(timer);if(controller===searchAbort)$('search').disabled=false;}
+  finally{clearTimeout(timer);if(controller===searchAbort){$('search').disabled=false;if(playback && !selected)$('add-missing').hidden=false;}} 
 }
 function pauseFollowing(){if(!lines.length)return;followingLyrics=false;$('follow-lyrics').hidden=false;scroll.scrollTo({top:scroll.scrollTop,behavior:'auto'});}
 const scroll=$('lyrics-scroll');

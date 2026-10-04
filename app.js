@@ -1,5 +1,5 @@
 import {createTimingEditor,savedTimings} from './lyrics-timing.js';
-import {createLyricsEditor} from './lyrics-editor.js?v=youtube-1';
+import {createLyricsEditor} from './lyrics-editor.js?v=youtube-2';
 import {Spotify,position,formatTime} from './spotify.js?v=account-photo-2';
 import {Lyrics,parseLrc,activeLine,trackKey} from './lyrics.js';
 const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort,followingLyrics=true;
