@@ -1,5 +1,5 @@
 import {createLyricsEditor} from './lyrics-editor.js';
-import {Spotify,position,formatTime} from './spotify.js';
+import {Spotify,position,formatTime} from './spotify.js?v=account-photo-2';
 import {Lyrics,parseLrc,activeLine,trackKey} from './lyrics.js';
 const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort;
 const lyricSection=document.createElement('section'); lyricSection.id='lyrics'; lyricSection.hidden=true;
@@ -45,7 +45,13 @@ function followLyrics(ms) {
 const $=id=>document.getElementById(id), spotify=new Spotify();
 let current=null,receivedAt=0,timer,busy=false,generation=0,blockedUntil=0,failures=0,accountPending=false,accountName='';
 function notice(message='') { $('notice').textContent=message; }
-function connected() { const yes=!!spotify.tokens(); $('welcome').hidden=yes; $('player').hidden=!yes; $('account-controls').hidden=!yes; if(!yes){accountName='';$('account-name').textContent='Spotify account';$('account-retry').hidden=true;} return yes; }
+function connected() { const yes=!!spotify.tokens(); $('welcome').hidden=yes; $('player').hidden=!yes; $('account-controls').hidden=!yes; if(!yes){accountName='';setAccountPhoto();$('account-name').textContent='Spotify account';$('account-retry').hidden=true;} return yes; }
+function setAccountPhoto(url=null,name='') {
+  const photo=$('account-photo');photo.hidden=!url;
+  $('account-initial').hidden=!!url;$('account-initial').textContent=name.trim().charAt(0).toUpperCase() || '♫';
+  if(url)photo.src=url;else photo.removeAttribute('src');
+}
+$('account-photo').onerror=()=>setAccountPhoto(null,accountName);
 async function loadAccount() {
   if(accountPending || !spotify.tokens())return;
   accountPending=true;const version=generation;
@@ -53,7 +59,7 @@ async function loadAccount() {
   try {
     const profile=await spotify.profile();if(version!==generation)return;
     accountName=profile.name;$('account-name').textContent=`Spotify · ${accountName}`;
-    $('account-name').title=accountName;
+    $('account-name').title=accountName;setAccountPhoto(profile.image,accountName);
   }catch {
     if(version!==generation)return;
     $('account-name').textContent='Spotify · name unavailable';$('account-retry').hidden=false;
@@ -110,7 +116,6 @@ $('connect').onclick=connectSpotify;
 $('disconnect').onclick=()=>signOut();
 $('switch-account').onclick=()=>{signOut('Choose “Not you?” on Spotify to switch accounts.');connectSpotify();};
 $('art').onerror=()=>{ $('art').hidden=true; $('art-placeholder').hidden=false; };
-$('fullscreen').onclick=async()=>{try { if(document.fullscreenElement) await document.exitFullscreen(); else if(document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen(); else notice('On iPad, use Safari’s Add to Home Screen for a full-screen view.'); } catch { notice('Full screen is unavailable in this browser.'); }};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) poll();});
 window.addEventListener('online',()=>poll());
 setInterval(tick,250);

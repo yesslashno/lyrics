@@ -50,7 +50,7 @@ test('reconnecting requests Spotify authorization dialog with PKCE',async()=>{
   finally {if(original===undefined)delete globalThis.location;else globalThis.location=original;}
 });
 test('account name uses the authorized profile and falls back to ID',async()=>{
- const client=setup(async(url,options)=>{assert.equal(url,'https://api.spotify.com/v1/me');assert.equal(options.headers.Authorization,'Bearer old');return Response.json({display_name:'House account',id:'house'});});assert.deepEqual(await client.profile(),{name:'House account'});
+ const client=setup(async(url,options)=>{assert.equal(url,'https://api.spotify.com/v1/me');assert.equal(options.headers.Authorization,'Bearer old');return Response.json({display_name:'House account',id:'house',images:[{url:'https://example.com/avatar.jpg'}]});});assert.deepEqual(await client.profile(),{name:'House account',image:'https://example.com/avatar.jpg'});
  const fallback=setup(async()=>Response.json({display_name:null,id:'listener'}));assert.equal((await fallback.profile()).name,'listener');
 });
 test('profile refreshes expired tokens and retries unauthorized once',async()=>{

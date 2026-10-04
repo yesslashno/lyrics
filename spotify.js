@@ -62,7 +62,7 @@ export class Spotify {
     if(!response.ok)throw new SpotifyError('Couldn’t load your Spotify account name.',response.status);
     const data=await response.json();
     if(version!==this.generation)throw new SpotifyError('Signed out. Please connect again.',401);
-    return {name:data.display_name || data.id || 'Spotify listener'};
+    return {name:data.display_name || data.id || 'Spotify listener',image:data.images?.find(image=>typeof image.url==='string' && image.url.startsWith('https://'))?.url || null};
   }
   async nowPlaying(retry=true) {
     const version=this.generation;

@@ -49,3 +49,5 @@ When lyrics are missing (or the lookup fails), choose **Add missing lyrics** bes
 ### Publishing relay
 
 The live site uses `https://lyrics-publish.hunkyard-dog.workers.dev/api/lrclib`, configured in `publish-config.js`. `publish-relay.js` is deployed as the `lyrics-publish` Cloudflare Worker. LRCLIB blocks direct browser publishing headers, so the relay forwards only the challenge and publish operations, with validated recording data, body-size limits, request timeouts and an origin allowlist. No Spotify credentials or persistent storage are used. Local development serves the same relay through `server.js`. The Worker does not need a custom domain, a GitHub connection, or API secrets.
+
+The account header includes a circular Spotify profile photo (initial fallback). Versioned application and stylesheet URLs prevent cached files from mixing with a newer header.
