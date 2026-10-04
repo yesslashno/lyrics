@@ -142,6 +142,9 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden) poll();})
 window.addEventListener('online',()=>poll());
 setInterval(tick,250);
 async function init() {
+  const params=new URLSearchParams(location.search);
+  try{if(params.get('source')==='spotify'){localStorage.setItem('companion.last-source','spotify');history.replaceState({},'',location.pathname);}else if(!params.has('code') && !params.has('error') && location.pathname!=='/callback' && localStorage.getItem('companion.last-source')==='youtube'){location.replace(new URL('./youtube.html',import.meta.url).href);return;}}catch{}
+
   if(location.pathname==='/callback' || new URLSearchParams(location.search).has('code') || new URLSearchParams(location.search).has('error')) {
     $('connect').disabled=true; notice('Connecting to Spotify…');
     try { await spotify.callback(new URLSearchParams(location.search)); notice(); } catch(error) { notice(error.message); }

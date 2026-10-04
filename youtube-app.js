@@ -1,6 +1,7 @@
 import {parseLrc,activeLine} from './lyrics.js';
 import {inferSong,defaultLyricsResult,lyricText,playbackPosition} from './youtube-model.js';
 const $=id=>document.getElementById(id);
+try{localStorage.setItem('companion.last-source','youtube');}catch{}
 import {createLyricsEditor} from './lyrics-editor.js?v=youtube-2';
 import {createTimingEditor,savedTimings,timingKey} from './lyrics-timing.js?v=youtube-1';
 const API='https://lyrics-youtube.hunkyard-dog.workers.dev/api',STORAGE='companion.youtube.pair';
@@ -14,12 +15,33 @@ const remembered=new Map();
 function savePair(){try{localStorage.setItem(STORAGE,JSON.stringify(pair));}catch{$('pair-status').textContent='This browser cannot remember pairing. Keep this page open.';}}
 function pairing(){const paired=!!token;$('pairing').hidden=paired;$('screen').hidden=!paired;$('pair-details').hidden=!paired;const writer=valid(pair.writeToken);$('writer-setup').hidden=!writer;$('read-only-setup').hidden=writer;if(writer)$('write-code').value=pair.writeToken;if(paired)$('viewer-link').value=location.origin+location.pathname+'#pair='+token;}
 async function api(path,options={}){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6000);try{return await fetch(API+path,{...options,signal:controller.signal});}finally{clearTimeout(timer);}}
-$('create-pair').onclick=async()=>{const button=$('create-pair');button.disabled=true;$('pair-status').textContent='Creating pairing…';try{const response=await api('/session',{method:'POST'}),data=await response.json();if(!response.ok)throw new Error(data.error || 'Couldn’t create pairing.');pair=data;token=pair.readToken;savePair();pairing();$('pair-details').open=true;$('pair-status').textContent='';poll();}catch(error){$('pair-status').textContent=error.name==='AbortError'?'Connection timed out. Try again.':error.message;}finally{button.disabled=false;}};
-$('pair-form').onsubmit=event=>{event.preventDefault();const value=$('pair-code').value.trim();let readToken=value;try{readToken=new URL(value).hash.slice(6);}catch{}if(!valid(readToken)){$('pair-code').setCustomValidity('Paste the complete screen link from the laptop.');$('pair-code').reportValidity();return;}pair={readToken};token=readToken;savePair();$('pair-code').value='';pairing();poll();};
+$('create-pair').onclick=async()=>{const button=$('create-pair');button.disabled=true;$('pair-status').textContent='Creating pairing…';try{const response=await api('/session',{method:'POST'}),data=await response.json();if(!response.ok)throw new Error(data.error || 'Couldn’t create pairing.');stopDevice();pair=data;token=pair.readToken;savePair();pairing();$('pair-details').open=true;$('writer-setup').open=true;$('pair-status').textContent='';poll();}catch(error){$('pair-status').textContent=error.name==='AbortError'?'Connection timed out. Try again.':error.message;}finally{button.disabled=false;}};
+$('pair-form').onsubmit=event=>{event.preventDefault();const value=$('pair-code').value.trim();let readToken=value;try{readToken=new URL(value).hash.slice(6);}catch{}if(!valid(readToken)){$('pair-code').setCustomValidity('Paste the complete screen link from the laptop.');$('pair-code').reportValidity();return;}stopDevice();pair={readToken};token=readToken;savePair();$('pair-code').value='';pairing();poll();};
+let deviceTicket=null,deviceTimer,deviceBusy=null,deviceVersion=0;
+try{const saved=JSON.parse(localStorage.getItem('companion.youtube.device'));if(saved?.expiresAt>Date.now() && valid(saved.pollToken))deviceTicket=saved;}catch{}
+function stopDevice(){deviceVersion++;clearTimeout(deviceTimer);const previous=deviceTicket;deviceTicket=null;try{localStorage.removeItem('companion.youtube.device');}catch{}$('device-screen').hidden=true;if(previous)api('/device/status',{method:'DELETE',headers:{Authorization:'Bearer '+previous.pollToken}}).catch(()=>{});}
+function displayDevice(){if(!deviceTicket)return;$('device-screen').hidden=false;$('device-code').textContent=deviceTicket.code.slice(0,3)+' '+deviceTicket.code.slice(3);$('device-status').textContent='On the laptop’s YouTube companion page, open Connect an iPad and enter this code. It expires in five minutes.';}
+async function waitForDevice(){
+ if(!deviceTicket || deviceBusy===deviceTicket || token)return;
+ const ticket=deviceTicket,version=deviceVersion;deviceBusy=ticket;
+ try{if(Date.now()>=ticket.expiresAt)throw new Error('Code expired. Tap Connect this iPad for a new code.');
+  const response=await api('/device/status',{headers:{Authorization:'Bearer '+ticket.pollToken}}),data=await response.json();if(version!==deviceVersion)return;
+  if(!response.ok)throw new Error(data.error || 'Couldn’t connect this screen.');
+  if(valid(data.readToken)){pair={readToken:data.readToken,expiresAt:data.expiresAt};token=pair.readToken;savePair();stopDevice();pairing();$('pair-status').textContent='';poll();return;}
+  $('device-status').textContent='Waiting for the laptop… '+Math.ceil((ticket.expiresAt-Date.now())/60000)+' min remaining.';
+ }catch(error){if(version!==deviceVersion)return;$('device-status').textContent=error.message;}
+ finally{if(deviceBusy===ticket)deviceBusy=null;if(deviceTicket===ticket && version===deviceVersion && Date.now()<ticket.expiresAt)deviceTimer=setTimeout(waitForDevice,2000);}
+}
+$('start-device').onclick=async()=>{stopDevice();const version=deviceVersion,button=$('start-device');button.disabled=true;$('pair-status').textContent='Creating iPad code…';
+ try{const response=await api('/device/start',{method:'POST'}),data=await response.json();if(version!==deviceVersion)return;if(!response.ok)throw new Error(data.error || 'Couldn’t create a code.');deviceTicket=data;try{localStorage.setItem('companion.youtube.device',JSON.stringify(data));}catch{}$('pair-status').textContent='';displayDevice();waitForDevice();}catch(error){if(version===deviceVersion)$('pair-status').textContent=error.message;}finally{button.disabled=false;}
+};
+$('cancel-device').onclick=stopDevice;
+$('approve-device').onsubmit=async event=>{event.preventDefault();const code=$('approve-code').value.trim(),pairToken=token,button=$('approve-submit');button.disabled=true;$('approve-status').textContent='Connecting iPad…';try{const response=await api('/device/approve',{method:'POST',headers:{Authorization:'Bearer '+pairToken,'Content-Type':'application/json'},body:JSON.stringify({code})}),data=await response.json();if(pairToken!==token)return;if(!response.ok)throw new Error(data.error || 'Couldn’t connect.');$('approve-status').textContent='iPad connected. Its screen will open automatically.';$('approve-code').value='';}catch(error){$('approve-status').textContent=error.message;}finally{button.disabled=false;}};
+if(deviceTicket && !token){displayDevice();waitForDevice();}
 $('pair-code').oninput=()=>$('pair-code').setCustomValidity('');
 for(const [button,input] of [['copy-code','write-code'],['copy-link','viewer-link']])$(button).onclick=async()=>{try{await navigator.clipboard.writeText($(input).value);$(button).textContent='Copied';}catch{$(input).select();$(button).textContent='Select and copy';}};
 $('unpair').onclick=async()=>{const old=token;$('unpair').disabled=true;try{const response=await api('/playback',{method:'DELETE',headers:{Authorization:'Bearer '+old}});if(!response.ok && response.status!==401)throw new Error();if(token!==old)return;resetPair();}catch{$('connection').textContent='Couldn’t disconnect. Check the connection and try again.';}finally{$('unpair').disabled=false;}};
-function resetPair(){pair={};token='';savePair();searchAbort?.abort();timingEditor.close();publisher.close();playback=null;videoId='';videoKey='';remembered.clear();clearLyrics();pairing();}
+function resetPair(){stopDevice();pair={};token='';savePair();searchAbort?.abort();timingEditor.close();publisher.close();playback=null;videoId='';videoKey='';remembered.clear();clearLyrics();pairing();}
 function trackFor(result){return {id:'lrclib:'+result.id,type:'track',name:result.trackName,artists:[{name:result.artistName}],album:{name:result.albumName || ''},duration_ms:Math.round(result.duration*1000)};}
 function applyTiming(track,value){if(track.id==='youtube:'+videoKey){chooseSong({id:'contribution:'+videoKey,trackName:track.name,artistName:track.artists[0].name,albumName:track.album.name,duration:track.duration_ms/1000,...value});return;}if(selected && timingKey(trackFor(selected))===timingKey(track)){selected={...selected,...value};chooseSong(selected);}}
 const publisher=createLyricsEditor(applyTiming);

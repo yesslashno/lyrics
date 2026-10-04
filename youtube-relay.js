@@ -49,4 +49,64 @@ export async function handleYouTube(request,env,now=Date.now()){
   return reply(result.meta.changes?200:401,result.meta.changes?{ok:true}:{error:'Pairing expired. Copy a new code from the companion.'});
  }catch{return reply(503,{error:'YouTube connection is temporarily unavailable. Try again shortly.'});}
 }
-export default {fetch:(request,env)=>handleYouTube(request,env)};
+export default {fetch:(request,env)=>new URL(request.url).pathname.startsWith('/api/device/')?handleDevice(request,env):handleYouTube(request,env)};
+
+const deviceDatabases=new WeakMap();
+async function deviceTables(db){
+ let ready=deviceDatabases.get(db);
+ if(!ready){ready=(async()=>{for(const sql of [
+ 'CREATE TABLE IF NOT EXISTS youtube_devices (poll_hash TEXT PRIMARY KEY,code_hash TEXT UNIQUE NOT NULL,read_token TEXT,pair_expires_at INTEGER,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,creator_hash TEXT NOT NULL)',
+ 'CREATE INDEX IF NOT EXISTS youtube_device_creators ON youtube_devices(creator_hash,created_at)',
+ 'CREATE TABLE IF NOT EXISTS youtube_device_attempts (creator_hash TEXT PRIMARY KEY,window_start INTEGER NOT NULL,attempts INTEGER NOT NULL)'
+ ])await db.prepare(sql).bind().run();})();deviceDatabases.set(db,ready);}
+ try{await ready;}catch(error){deviceDatabases.delete(db);throw error;}
+}
+export async function handleDevice(request,env,now=Date.now()){
+ const origin=request.headers.get('Origin') || '',path=new URL(request.url).pathname;
+ const headers={'Content-Type':'application/json','Cache-Control':'no-store','Vary':'Origin','Access-Control-Allow-Origin':SITE,'Access-Control-Allow-Headers':'Content-Type, Authorization','Access-Control-Allow-Methods':'GET, POST, DELETE, OPTIONS','X-Content-Type-Options':'nosniff'};
+ const reply=(status,value)=>json(status,value,headers);
+ if(origin!==SITE)return reply(403,{error:'Connect screens from the companion site.'});
+ if(!['/api/device/start','/api/device/status','/api/device/approve'].includes(path))return reply(404,{error:'Not found.'});
+ if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
+ if(!env.DB)return reply(503,{error:'Screen pairing is temporarily unavailable.'});
+ try{
+  await deviceTables(env.DB);
+  const creator=await hash(request.headers.get('CF-Connecting-IP') || 'unknown');
+  if(path==='/api/device/start' && request.method==='POST'){
+   const recent=await env.DB.prepare('SELECT COUNT(*) AS count FROM youtube_devices WHERE creator_hash=? AND created_at>?').bind(creator,now-600000).first();
+   if(recent.count>=10)return reply(429,{error:'Too many new codes. Wait a few minutes.'});
+   // Retain expired rows briefly to enforce the creation limit, but erase delivered keys promptly.
+   await env.DB.prepare('UPDATE youtube_devices SET read_token=NULL WHERE expires_at<=?').bind(now).run();
+   await env.DB.prepare('DELETE FROM youtube_devices WHERE created_at<=?').bind(now-600000).run();
+   await env.DB.prepare('DELETE FROM youtube_device_attempts WHERE window_start<=?').bind(now-600000).run();
+   const pollToken=secret(),expiresAt=now+300000;
+   for(let tries=0;tries<8;tries++){
+    const code=String(100000+crypto.getRandomValues(new Uint32Array(1))[0]%900000),codeHash=await hash(code);
+    const occupied=await env.DB.prepare('SELECT poll_hash FROM youtube_devices WHERE code_hash=?').bind(codeHash).first();if(occupied)continue;
+    try{await env.DB.prepare('INSERT INTO youtube_devices(poll_hash,code_hash,expires_at,created_at,creator_hash) VALUES(?,?,?,?,?)').bind(await hash(pollToken),codeHash,expiresAt,now,creator).run();return reply(201,{pollToken,code,expiresAt});}catch{if(tries===7)throw new Error('Code creation failed');}
+   }
+   return reply(503,{error:'Couldn’t create a code. Try again.'});
+  }
+  const token=request.headers.get('Authorization')?.match(/^Bearer ([a-f0-9]{48})$/)?.[1];if(!token)return reply(401,{error:'Connect this screen again.'});
+  const tokenHash=await hash(token);
+  if(path==='/api/device/status'){
+   if(request.method==='DELETE'){await env.DB.prepare('UPDATE youtube_devices SET read_token=NULL,expires_at=? WHERE poll_hash=?').bind(now,tokenHash).run();return reply(200,{ok:true});}
+   if(request.method!=='GET')return reply(405,{error:'Method not allowed.'});
+   const row=await env.DB.prepare('SELECT read_token,pair_expires_at FROM youtube_devices WHERE poll_hash=? AND expires_at>?').bind(tokenHash,now).first();
+   if(!row)return reply(410,{error:'This code expired. Get a new code on the iPad.'});
+   if(!row.read_token)return reply(200,{pending:true});
+   const session=await env.DB.prepare('SELECT expires_at FROM youtube_sessions WHERE read_hash=? AND expires_at>?').bind(await hash(row.read_token),now).first();
+   if(!session)return reply(410,{error:'The laptop pairing ended. Get a new code.'});
+   return reply(200,{readToken:row.read_token,expiresAt:session.expires_at});
+  }
+  if(path!=='/api/device/approve' || request.method!=='POST')return reply(405,{error:'Method not allowed.'});
+  const session=await env.DB.prepare('SELECT expires_at FROM youtube_sessions WHERE read_hash=? AND expires_at>?').bind(tokenHash,now).first();if(!session)return reply(401,{error:'Pair YouTube on your laptop first.'});
+  await env.DB.prepare('INSERT INTO youtube_device_attempts(creator_hash,window_start,attempts) VALUES(?,?,1) ON CONFLICT(creator_hash) DO UPDATE SET attempts=CASE WHEN window_start<=? THEN 1 ELSE attempts+1 END,window_start=CASE WHEN window_start<=? THEN excluded.window_start ELSE window_start END').bind(creator,now,now-600000,now-600000).run();
+  const limit=await env.DB.prepare('SELECT attempts FROM youtube_device_attempts WHERE creator_hash=?').bind(creator).first();if(limit.attempts>10)return reply(429,{error:'Too many attempts. Wait a few minutes.'});
+  const reader=request.body?.getReader();if(!reader)return reply(400,{error:'Enter the six-digit code.'});let text='',bytes=0;const decoder=new TextDecoder();
+  while(true){const chunk=await reader.read();if(chunk.done)break;bytes+=chunk.value.length;if(bytes>128){await reader.cancel();return reply(413,{error:'Enter only the six-digit code.'});}text+=decoder.decode(chunk.value,{stream:true});}text+=decoder.decode();
+  let code;try{code=JSON.parse(text).code;}catch{return reply(400,{error:'Enter the six-digit code.'});}if(typeof code!=='string' || !/^\d{6}$/.test(code))return reply(400,{error:'Enter the six-digit code.'});
+  const result=await env.DB.prepare('UPDATE youtube_devices SET read_token=?,pair_expires_at=? WHERE code_hash=? AND expires_at>? AND read_token IS NULL').bind(token,session.expires_at,await hash(code),now).run();
+  return result.meta.changes?reply(200,{ok:true}):reply(404,{error:'Code not found, already used, or expired. Check the iPad.'});
+ }catch{return reply(503,{error:'Screen pairing is temporarily unavailable. Try again.'});}
+}
