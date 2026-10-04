@@ -51,3 +51,6 @@ When lyrics are missing (or the lookup fails), choose **Add missing lyrics** bes
 The live site uses `https://lyrics-publish.hunkyard-dog.workers.dev/api/lrclib`, configured in `publish-config.js`. `publish-relay.js` is deployed as the `lyrics-publish` Cloudflare Worker. LRCLIB blocks direct browser publishing headers, so the relay forwards only the challenge and publish operations, with validated recording data, body-size limits, request timeouts and an origin allowlist. No Spotify credentials or persistent storage are used. Local development serves the same relay through `server.js`. The Worker does not need a custom domain, a GitHub connection, or API secrets.
 
 The account header includes a circular Spotify profile photo (initial fallback). Versioned application and stylesheet URLs prevent cached files from mixing with a newer header.
+
+## iPad Home Screen
+In Safari, use Share → Add to Home Screen, name it Lyrics, and add it. Remove and re-add older shortcuts to pick up the new icon and standalone launch mode. The manifest and Apple web-app metadata provide Home Screen support without offline caching. Spotify may require a fresh sign-in in the installed app.
