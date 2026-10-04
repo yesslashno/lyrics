@@ -52,6 +52,18 @@ export class Spotify {
     }
     return this.refreshing;
   }
+  async profile(retry=true) {
+    const version=this.generation,tokens=this.tokens();
+    if(!tokens)throw new SpotifyError('Please connect with Spotify.',401);
+    const access=tokens.expires_at<Date.now()+30000?await this.refresh():tokens.access_token;
+    const response=await this.timedRequest('https://api.spotify.com/v1/me',{headers:{Authorization:`Bearer ${access}`}});
+    if(version!==this.generation)throw new SpotifyError('Signed out. Please connect again.',401);
+    if(response.status===401 && retry){await this.refresh();return this.profile(false);}
+    if(!response.ok)throw new SpotifyError('Couldn’t load your Spotify account name.',response.status);
+    const data=await response.json();
+    if(version!==this.generation)throw new SpotifyError('Signed out. Please connect again.',401);
+    return {name:data.display_name || data.id || 'Spotify listener'};
+  }
   async nowPlaying(retry=true) {
     const version=this.generation;
     let tokens=this.tokens();

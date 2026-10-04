@@ -49,3 +49,13 @@ test('reconnecting requests Spotify authorization dialog with PKCE',async()=>{
   try {const client=new Spotify(store(),store());await client.login();assert.equal(target.searchParams.get('show_dialog'),'true');assert.equal(target.searchParams.get('code_challenge_method'),'S256');assert.ok(client.session.getItem('companion.pkce'));}
   finally {if(original===undefined)delete globalThis.location;else globalThis.location=original;}
 });
+test('account name uses the authorized profile and falls back to ID',async()=>{
+ const client=setup(async(url,options)=>{assert.equal(url,'https://api.spotify.com/v1/me');assert.equal(options.headers.Authorization,'Bearer old');return Response.json({display_name:'House account',id:'house'});});assert.deepEqual(await client.profile(),{name:'House account'});
+ const fallback=setup(async()=>Response.json({display_name:null,id:'listener'}));assert.equal((await fallback.profile()).name,'listener');
+});
+test('profile refreshes expired tokens and retries unauthorized once',async()=>{
+ let calls=0;const client=setup(async url=>{calls++;if(url.includes('/api/token'))return Response.json({access_token:'new',expires_in:3600});return calls===1?new Response(null,{status:401}):Response.json({display_name:'New account'});});assert.equal((await client.profile()).name,'New account');assert.equal(calls,3);
+});
+test('a late profile response cannot restore the old account after switching',async()=>{
+ let finish;const client=setup(()=>new Promise(resolve=>{finish=resolve;}));const pending=client.profile();client.disconnect();finish(Response.json({display_name:'Old account'}));await assert.rejects(pending,/Signed out/);assert.equal(client.tokens(),null);
+});
