@@ -1,3 +1,4 @@
+import {relayUrl as configuredRelay} from './publish-config.js';
 export function publishPayload(track,value) {
   if(!track?.name || !track.artists?.[0]?.name || !track.album?.name || !(track.duration_ms>0))throw new Error('This song is missing details needed to publish lyrics.');
   if(!value.plainLyrics?.trim() && !value.syncedLyrics?.trim())throw new Error('Paste lyrics before publishing.');
@@ -17,14 +18,15 @@ export function solveChallenge(challenge,signal) {
     worker.postMessage(challenge);
   });
 }
-export async function publishLyrics(track,value,{signal,status=()=>{},request=(...args)=>globalThis.fetch(...args),solve=solveChallenge}={}) {
+export async function publishLyrics(track,value,{signal,status=()=>{},request=(...args)=>globalThis.fetch(...args),solve=solveChallenge,relayUrl=configuredRelay()}={}) {
   const payload=publishPayload(track,value);
+  if(!relayUrl)throw new Error('Public publishing needs a relay. For now, open the companion on your Mac at http://127.0.0.1:5173 to contribute lyrics.');
   async function send(path,body,headers={}) {
     const controller=new AbortController(),cancel=()=>controller.abort();
     if(signal?.aborted)throw new Error('Publishing cancelled.');
     signal?.addEventListener('abort',cancel,{once:true});const timer=setTimeout(cancel,20000);
     try {
-      const response=await request(`https://lrclib.net/api/${path}`,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body),signal:controller.signal});
+      const response=await request(`${relayUrl}/${path}`,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body),signal:controller.signal});
       if(!response.ok){throw new Error(response.status===429?'LRCLIB is busy. Wait a little and try again.':`LRCLIB could not publish these lyrics (${response.status}). Please try again.`);}
       return path==='request-challenge'?await response.json():null;
     } catch(error){if(controller.signal.aborted)throw new Error(signal?.aborted?'Publishing cancelled.':'Request timed out. Your lyrics are still here; try again.');throw error;}
