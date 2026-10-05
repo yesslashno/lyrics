@@ -1,8 +1,8 @@
-import {createSpotifyControls} from './spotify-controls.js';
+import {createSpotifyControls} from './spotify-controls.js?v=layout-2';
 import {privateLyrics,webLyricsUrl} from './private-lyrics.js';
 import {createScreensaver} from './screensaver.js';
 import {createTimingEditor,savedTimings} from './lyrics-timing.js';
-import {createLyricsEditor} from './lyrics-editor.js?v=private-1';
+import {createLyricsEditor} from './lyrics-editor.js?v=layout-2';
 import {Spotify,position,formatTime} from './spotify.js?v=playback-1';
 import {Lyrics,parseLrc,activeLine,trackKey} from './lyrics.js';
 const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort,followingLyrics=true;
@@ -23,7 +23,7 @@ lyricTime.onclick=()=>timingEditor.open(current?.item,plainForTiming);
 lyricAdd.onclick=()=>editor.open(current?.item?.type==='track'?current.item:null,privateLyrics(current?.item)?.value || {});
 const lyricStatus=document.createElement('p');lyricStatus.className='lyrics-status';lyricStatus.setAttribute('role','status');
 const lyricScroll=document.createElement('div');lyricScroll.className='lyrics-scroll';lyricScroll.tabIndex=0;lyricScroll.setAttribute('aria-label','Song lyrics');
-const lyricWeb=document.createElement('a');lyricWeb.className='quiet';lyricWeb.textContent='Search the web ↗';lyricWeb.target='_blank';lyricWeb.rel='noopener noreferrer';lyricWeb.hidden=true;
+const lyricWeb=document.createElement('a');lyricWeb.className='quiet';lyricWeb.textContent='Search the web →';lyricWeb.target='_blank';lyricWeb.rel='noopener noreferrer';lyricWeb.hidden=true;
 const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricWeb,lyricFollow,lyricTime,lyricRetry,lyricAdd);lyricHeader.append(lyricLabel,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
 function pauseFollowing(){if(!lyricLines.length)return;followingLyrics=false;lyricFollow.hidden=false;lyricScroll.scrollTo({top:lyricScroll.scrollTop,behavior:'auto'});}
 lyricScroll.addEventListener('wheel',pauseFollowing,{passive:true});
@@ -36,7 +36,7 @@ if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{lastLine=-2;follo
 lyricRetry.onclick=()=>{lyrics.cache.delete(trackKey(current?.item));loadLyrics(current?.item,true);};
 async function loadLyrics(track,force=false) {
   const key=trackKey(track);if(key===lyricsKey && !force)return;
-  lyricWeb.hidden=!track;if(track)lyricWeb.href=webLyricsUrl(track.name,track.artists?.[0]?.name);
+  lyricWeb.hidden=true;if(track)lyricWeb.href=webLyricsUrl(track.name,track.artists?.[0]?.name);
   lyricsKey=key;lyricAbort?.abort();lyricAbort=new AbortController();const controller=lyricAbort;
   lyricLines=[];lineNodes=[];lastLine=-2;followingLyrics=true;lyricFollow.hidden=true;lyricTime.hidden=true;plainForTiming='';lyricScroll.replaceChildren();lyricScroll.scrollTop=0;
   lyricSection.hidden=!track;document.body.classList.toggle('with-lyrics',!!track);lyricRetry.hidden=true;lyricAdd.hidden=true;if(!track)return;
@@ -47,6 +47,7 @@ async function loadLyrics(track,force=false) {
     const own=savedTimings(track,result?.plainLyrics || '');if(own)result={...result,...own};
     plainForTiming=result?.plainLyrics || '';lyricTime.hidden=!plainForTiming || !!result?.instrumental || (!!result?.syncedLyrics && !own);lyricTime.textContent=own?'Edit timing':'Add timing';
     lyricAdd.hidden=!result?.private && !!(result?.instrumental || result?.syncedLyrics || result?.plainLyrics);
+    lyricWeb.hidden=!!(result?.instrumental || result?.syncedLyrics || result?.plainLyrics);
     lyricRetry.hidden=!!result?.private || lyricAdd.hidden;
     lyricAdd.textContent=result?.private?'Edit private lyrics':'Add missing lyrics';
     lyricLines=parseLrc(result?.syncedLyrics || '');
@@ -55,7 +56,7 @@ async function loadLyrics(track,force=false) {
     lineNodes=texts.map(text=>{const node=document.createElement('p');node.className='lyric-line';node.textContent=text || '♪';return node;});lyricScroll.append(...lineNodes);followLyrics(position(current,receivedAt));
   } catch(error) {
     if(key!==lyricsKey || controller!==lyricAbort)return;
-    lyricStatus.textContent=error.message || 'Lyrics request timed out. Try again.';lyricRetry.hidden=false;lyricAdd.hidden=false;lyricAdd.textContent='Add missing lyrics';
+    lyricStatus.textContent=error.message || 'Lyrics request timed out. Try again.';lyricWeb.hidden=false;lyricRetry.hidden=false;lyricAdd.hidden=false;lyricAdd.textContent='Add missing lyrics';
   } finally {clearTimeout(timeout);}
 }
 function followLyrics(ms) {

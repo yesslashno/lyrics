@@ -6,7 +6,7 @@ export function createSpotifyControls({spotify,readPlayback,onEnable,onRefresh})
   $('enable-controls').hidden=enabled;$('transport').hidden=!enabled;$('device-picker').hidden=!enabled;$('volume-controls').hidden=!enabled;
   $('device-name').textContent=pendingDevice?'Switching speaker…':device?.name || 'Choose speaker';
   const locked=command!==null || pendingDevice!==null;
-  $('play-pause').textContent=data?.is_playing?'Pause':'Play';
+  $('play-pause').setAttribute('aria-label',data?.is_playing?'Pause':'Play');$('play-icon').toggleAttribute('hidden',!!data?.is_playing);$('pause-icon').toggleAttribute('hidden',!data?.is_playing);
   for(const [id,allowed] of [['play-pause',available.play],['previous-track',available.previous],['next-track',available.next]])$(id).disabled=locked || !allowed;
   $('volume').disabled=locked || !available.volume;
   if(document.activeElement!==$('volume') && !locked){$('volume').value=Number.isFinite(device?.volume_percent)?device.volume_percent:0;$('volume-value').textContent=Number.isFinite(device?.volume_percent)?device.volume_percent+'%':'—';}

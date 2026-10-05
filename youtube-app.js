@@ -4,7 +4,7 @@ import {parseLrc,activeLine} from './lyrics.js';
 import {inferSong,defaultLyricsResult,lyricText,playbackPosition} from './youtube-model.js';
 const $=id=>document.getElementById(id);
 try{localStorage.setItem('companion.last-source','youtube');}catch{}
-import {createLyricsEditor} from './lyrics-editor.js?v=private-1';
+import {createLyricsEditor} from './lyrics-editor.js?v=layout-2';
 import {createTimingEditor,savedTimings,timingKey} from './lyrics-timing.js?v=youtube-1';
 const API='https://lyrics-youtube.hunkyard-dog.workers.dev/api',STORAGE='companion.youtube.pair';
 const valid=value=>/^[a-f0-9]{48}$/.test(value || '');
@@ -53,8 +53,9 @@ $('add-timing').onclick=()=>{if(selected)timingEditor.open(trackFor(selected),se
 $('add-missing').onclick=()=>{if(!playback || playback.ad)return;const name=$('song-title').value.trim(),artist=$('song-artist').value.trim();const stored=privateLyrics({id:'youtube:'+videoKey});publisher.open(stored?.track || {id:'youtube:'+videoKey,type:'track',name,artists:[{name:artist}],album:{name:''},duration_ms:Math.round(playback.duration*1000)},stored?.value || {});};
 pairing();
 function time(seconds){const value=Math.max(0,Math.floor(seconds));return Math.floor(value/60)+':'+String(value%60).padStart(2,'0');}
-function clearLyrics(){$('web-lyrics').hidden=!playback;selected=null;lines=[];nodes=[];lastLine=-2;followingLyrics=true;$('follow-lyrics').hidden=true;$('add-timing').hidden=true;$('add-missing').hidden=true;document.body.classList.remove('is-synced');$('lyrics-scroll').replaceChildren();$('lyrics-status').textContent='Lyrics appear once a song is matched.';}
+function clearLyrics(){$('web-lyrics').hidden=true;selected=null;lines=[];nodes=[];lastLine=-2;followingLyrics=true;$('follow-lyrics').hidden=true;$('add-timing').hidden=true;$('add-missing').hidden=true;document.body.classList.remove('is-synced');$('lyrics-scroll').replaceChildren();$('lyrics-status').textContent='Lyrics appear once a song is matched.';}
 function chooseSong(result){
+  $('web-lyrics').hidden=true;
   const own=savedTimings(trackFor(result),result.plainLyrics || '');if(own)result={...result,...own};
   $('add-timing').hidden=!(Number.isFinite(result.duration) && result.duration>0) || !result.plainLyrics || result.instrumental || (!!result.syncedLyrics && !own);$('add-timing').textContent=own?'Edit timing':'Add timing';
   $('add-missing').hidden=!result.private;$('add-missing').textContent=result.private?'Edit private lyrics':'Add missing lyrics';
@@ -82,7 +83,7 @@ async function searchLyrics(){
     $('search-status').textContent=found?'Lyrics loaded. Choose another result if the song is wrong.':'No lyrics found. Try correcting the song title and artist.';
     if(found)chooseSong(found);else {$('matching').open=true;$('add-missing').hidden=false;$('lyrics-status').textContent='No lyrics found. You can add them for this recording.';}
   }catch(error){if(controller!==searchAbort || target!==videoKey)return;$('search-status').textContent=error.name==='AbortError'?'Search timed out. Try again.':error.message;}
-  finally{clearTimeout(timer);if(controller===searchAbort){$('search').disabled=false;if(playback && !selected)$('add-missing').hidden=false;}} 
+  finally{clearTimeout(timer);if(controller===searchAbort){$('search').disabled=false;if(playback && !selected){$('add-missing').hidden=false;$('web-lyrics').hidden=false;}}} 
 }
 function pauseFollowing(){if(!lines.length)return;followingLyrics=false;$('follow-lyrics').hidden=false;scroll.scrollTo({top:scroll.scrollTop,behavior:'auto'});}
 const scroll=$('lyrics-scroll');
@@ -110,7 +111,7 @@ async function poll(){
     $('video-link').hidden=false;$('video-link').href='https://www.youtube.com/watch?v='+playback.videoId;
     $('state').textContent=age>8000?'CONNECTION PAUSED':playback.paused?'PAUSED':'NOW PLAYING · YOUTUBE';
     $('connection').textContent=age>8000?'Waiting for Firefox. Keep the laptop awake and the video tab open.':'Paired · follows play, pause and seeking';
-    $('web-lyrics').hidden=false;$('web-lyrics').href=webLyricsUrl(inferSong(playback.title,playback.channel).title,inferSong(playback.title,playback.channel).artist);
+    
     const nextKey=JSON.stringify([playback.videoId,playback.title,playback.channel]);
     if(videoKey!==nextKey){
       videoId=playback.videoId;videoKey=nextKey;clearLyrics();$('results').replaceChildren();$('search-status').textContent='';
