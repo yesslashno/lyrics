@@ -1,5 +1,6 @@
 export const CLIENT_ID = '6f9f689a446f4afb8c9577beb830d3a8';
 export const REDIRECT_URI = typeof location==='undefined' || location.hostname==='127.0.0.1' ? 'http://127.0.0.1:5173/callback' : new URL('./',import.meta.url).href;
+export const CONTROL_SCOPES='user-read-currently-playing user-read-playback-state user-modify-playback-state';
 const KEY = 'companion.spotify.tokens', ACCOUNTS='companion.spotify.accounts';
 export class SpotifyError extends Error { constructor(message,status,retryMs=0) { super(message); this.status=status; this.retryMs=retryMs; } }
 export function base64url(bytes) { return btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
@@ -30,8 +31,8 @@ export class Spotify {
     this.generation++;this.refreshing=null;
     const verifier=base64url(crypto.getRandomValues(new Uint8Array(64)));
     const state=base64url(crypto.getRandomValues(new Uint8Array(32)));
-    this.session.setItem('companion.pkce',JSON.stringify({verifier,state,created:Date.now()}));
-    const params=new URLSearchParams({client_id:CLIENT_ID,response_type:'code',redirect_uri:REDIRECT_URI,scope:'user-read-currently-playing',state,code_challenge_method:'S256',code_challenge:await challenge(verifier)});
+    this.session.setItem('companion.pkce',JSON.stringify({verifier,state,created:Date.now(),scope:CONTROL_SCOPES}));
+    const params=new URLSearchParams({client_id:CLIENT_ID,response_type:'code',redirect_uri:REDIRECT_URI,scope:CONTROL_SCOPES,state,code_challenge_method:'S256',code_challenge:await challenge(verifier)});
     if(switchAccount)params.set('show_dialog','true');
     location.assign(`https://accounts.spotify.com/authorize?${params}`);
   }
@@ -69,7 +70,8 @@ export class Spotify {
     const data=await response.json();
     if(version!==this.generation || accountId!==this.accountState().activeId) throw new SpotifyError('Signed out. Please connect again.',401);
     if(!data.access_token || !Number.isFinite(data.expires_in))throw new SpotifyError('Spotify returned an incomplete sign-in response. Please retry.',502);
-    this.saveTokens({access_token:data.access_token,refresh_token:data.refresh_token || (fields.grant_type==='refresh_token'?this.tokens()?.refresh_token:undefined),expires_at:Date.now()+data.expires_in*1000},fields.grant_type==='authorization_code');
+    let requestedScope='';try{requestedScope=JSON.parse(this.session.getItem('companion.pkce'))?.scope || '';}catch{}
+    this.saveTokens({scope:data.scope || (fields.grant_type==='refresh_token'?this.tokens()?.scope:requestedScope) || '',access_token:data.access_token,refresh_token:data.refresh_token || (fields.grant_type==='refresh_token'?this.tokens()?.refresh_token:undefined),expires_at:Date.now()+data.expires_in*1000},fields.grant_type==='authorization_code');
     return data.access_token;
   }
   async refresh() {
@@ -100,12 +102,41 @@ export class Spotify {
     }}
     return profile;
   }
+  hasScope(scope){return (this.tokens()?.scope || '').split(' ').includes(scope);}
+  canControl(){return this.hasScope('user-read-playback-state') && this.hasScope('user-modify-playback-state');}
+  async playerRequest(path,options={},retry=true){
+    const version=this.generation,accountId=this.accountState().activeId,tokens=this.tokens();
+    const valid=()=>version===this.generation && accountId===this.accountState().activeId;
+    if(!tokens)throw new SpotifyError('Connect with Spotify first.',401);
+    if(Date.now()<(this.playerBlockedUntil || 0))throw new SpotifyError('Spotify asked us to wait. Try again shortly.',429,this.playerBlockedUntil-Date.now());
+    const access=tokens.expires_at<Date.now()+30000?await this.refresh():tokens.access_token;
+    if(!valid())throw new SpotifyError('The Spotify account changed. Try again.',409);
+    const response=await this.timedRequest('https://api.spotify.com/v1/me/player'+path,{...options,headers:{Authorization:`Bearer ${access}`,...(options.body?{'Content-Type':'application/json'}:{})}});
+    if(!valid())throw new SpotifyError('The Spotify account changed. Try again.',409);
+    if(response.status===401 && retry){await this.refresh();if(!valid())throw new SpotifyError('The Spotify account changed. Try again.',409);return this.playerRequest(path,options,false);}
+    if(response.status===429){const delay=Math.max(5000,(Number(response.headers.get('Retry-After')) || 30)*1000);this.playerBlockedUntil=Date.now()+delay;throw new SpotifyError('Spotify asked us to wait. Try again shortly.',429,delay);}
+    if(!response.ok){let data;try{data=await response.json();}catch{}const reason=data?.error?.reason;
+      throw new SpotifyError(response.status===404?'No active Spotify device. Start Spotify on your speaker, then refresh devices.':reason==='PREMIUM_REQUIRED'?'Spotify Premium is required for playback controls.':response.status===403?'Spotify cannot control this device or account. Check permissions, Premium, and speaker availability.':'Spotify could not complete the command. Try again.',response.status);
+    }
+    return response;
+  }
+  async devices(){if(!this.hasScope('user-read-playback-state'))throw new SpotifyError('Enable playback controls to see speakers.',403);const response=await this.playerRequest('/devices');return (await response.json()).devices || [];}
+  async control(action,deviceId,value){
+    if(!this.canControl())throw new SpotifyError('Enable playback controls for this account first.',403);
+    if(typeof deviceId!=='string' || !deviceId.trim())throw new Error('Choose an available Spotify device first.');
+    const device=new URLSearchParams({device_id:deviceId});let path,method,body;
+    if(action==='transfer'){path='';method='PUT';body=JSON.stringify({device_ids:[deviceId],play:!!value});}
+    else if(action==='volume'){if(!Number.isInteger(value) || value<0 || value>100)throw new Error('Volume must be between 0 and 100.');path='/volume?'+new URLSearchParams({device_id:deviceId,volume_percent:String(value)});method='PUT';}
+    else if(['play','pause','next','previous'].includes(action)){path='/'+action+'?'+device;method=['next','previous'].includes(action)?'POST':'PUT';}
+    else throw new Error('Unknown playback command.');
+    await this.playerRequest(path,{method,...(body?{body}:{})});
+  }
   async nowPlaying(retry=true) {
     const version=this.generation,accountId=this.accountState().activeId;
     let tokens=this.tokens();
     if (!tokens) throw new SpotifyError('Please connect with Spotify.',401);
     const access=tokens.expires_at<Date.now()+30000 ? await this.refresh() : tokens.access_token;
-    const response=await this.timedRequest('https://api.spotify.com/v1/me/player/currently-playing',{headers:{Authorization:`Bearer ${access}`}});
+    const response=await this.timedRequest('https://api.spotify.com/v1/me/player'+(this.hasScope('user-read-playback-state')?'':'/currently-playing'),{headers:{Authorization:`Bearer ${access}`}});
     if(version!==this.generation || accountId!==this.accountState().activeId) throw new SpotifyError('Signed out. Please connect again.',401);
     if (response.status===401 && retry) { await this.refresh(); return this.nowPlaying(false); }
     if (response.status===204) return null;

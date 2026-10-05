@@ -1,9 +1,10 @@
+import {privateLyrics,webLyricsUrl} from './private-lyrics.js';
 import {createScreensaver} from './screensaver.js';
 import {parseLrc,activeLine} from './lyrics.js';
 import {inferSong,defaultLyricsResult,lyricText,playbackPosition} from './youtube-model.js';
 const $=id=>document.getElementById(id);
 try{localStorage.setItem('companion.last-source','youtube');}catch{}
-import {createLyricsEditor} from './lyrics-editor.js?v=youtube-2';
+import {createLyricsEditor} from './lyrics-editor.js?v=private-1';
 import {createTimingEditor,savedTimings,timingKey} from './lyrics-timing.js?v=youtube-1';
 const API='https://lyrics-youtube.hunkyard-dog.workers.dev/api',STORAGE='companion.youtube.pair';
 const valid=value=>/^[a-f0-9]{48}$/.test(value || '');
@@ -49,17 +50,17 @@ function applyTiming(track,value){if(track.id==='youtube:'+videoKey){chooseSong(
 const publisher=createLyricsEditor(applyTiming);
 const timingEditor=createTimingEditor({readPlayback:()=>playback && selected?{mediaKey:videoKey+':'+selected.id,position:playbackPosition(playback,age,performance.now()-receivedAt),playing:!playback.paused,ad:playback.ad,stale:age+performance.now()-receivedAt>8000}:null,onSave:applyTiming,onPublish:(track,value)=>publisher.open(track,value)});
 $('add-timing').onclick=()=>{if(selected)timingEditor.open(trackFor(selected),selected.plainLyrics);};
-$('add-missing').onclick=()=>{if(!playback || playback.ad)return;const name=$('song-title').value.trim(),artist=$('song-artist').value.trim();publisher.open({id:'youtube:'+videoKey,type:'track',name,artists:[{name:artist}],album:{name:''},duration_ms:Math.round(playback.duration*1000)});};
+$('add-missing').onclick=()=>{if(!playback || playback.ad)return;const name=$('song-title').value.trim(),artist=$('song-artist').value.trim();const stored=privateLyrics({id:'youtube:'+videoKey});publisher.open(stored?.track || {id:'youtube:'+videoKey,type:'track',name,artists:[{name:artist}],album:{name:''},duration_ms:Math.round(playback.duration*1000)},stored?.value || {});};
 pairing();
 function time(seconds){const value=Math.max(0,Math.floor(seconds));return Math.floor(value/60)+':'+String(value%60).padStart(2,'0');}
-function clearLyrics(){selected=null;lines=[];nodes=[];lastLine=-2;followingLyrics=true;$('follow-lyrics').hidden=true;$('add-timing').hidden=true;$('add-missing').hidden=true;document.body.classList.remove('is-synced');$('lyrics-scroll').replaceChildren();$('lyrics-status').textContent='Lyrics appear once a song is matched.';}
+function clearLyrics(){$('web-lyrics').hidden=!playback;selected=null;lines=[];nodes=[];lastLine=-2;followingLyrics=true;$('follow-lyrics').hidden=true;$('add-timing').hidden=true;$('add-missing').hidden=true;document.body.classList.remove('is-synced');$('lyrics-scroll').replaceChildren();$('lyrics-status').textContent='Lyrics appear once a song is matched.';}
 function chooseSong(result){
   const own=savedTimings(trackFor(result),result.plainLyrics || '');if(own)result={...result,...own};
   $('add-timing').hidden=!(Number.isFinite(result.duration) && result.duration>0) || !result.plainLyrics || result.instrumental || (!!result.syncedLyrics && !own);$('add-timing').textContent=own?'Edit timing':'Add timing';
-  $('add-missing').hidden=true;
+  $('add-missing').hidden=!result.private;$('add-missing').textContent=result.private?'Edit private lyrics':'Add missing lyrics';
   selected=result;remembered.set(videoKey,result);if(remembered.size>50)remembered.delete(remembered.keys().next().value);
   lines=parseLrc(result.syncedLyrics || '');lastLine=-2;followingLyrics=true;$('follow-lyrics').hidden=true;document.body.classList.toggle('is-synced',!!lines.length);
-  $('lyrics-status').textContent=result.artistName+' · '+result.trackName+' — '+(result.instrumental?'Instrumental':lines.length?'Synced lyrics · following the video':'Plain lyrics · scroll at your own pace');
+  $('lyrics-status').textContent=(result.private?'Private lyrics · ':'')+result.artistName+' · '+result.trackName+' — '+(result.instrumental?'Instrumental':lines.length?'Synced lyrics · following the video':'Plain lyrics · scroll at your own pace');
   const texts=lines.length?lines.map(line=>line.text):lyricText(result).split(/\r?\n/);
   nodes=texts.map(text=>{const node=document.createElement('p');node.className='lyric-line';node.textContent=text || ' ';return node;});$('lyrics-scroll').replaceChildren(...nodes);$('lyrics-scroll').scrollTop=0;
   for(const [i,button] of [...$('results').children].entries())button.setAttribute('aria-pressed',String(results[i].id===result.id));
@@ -67,7 +68,7 @@ function chooseSong(result){
 }
 async function searchLyrics(){
   searchAbort?.abort();const controller=new AbortController();searchAbort=controller;const target=videoKey;const song={title:$('song-title').value.trim(),artist:$('song-artist').value.trim()};
-  if(!song.title)return;clearLyrics();
+  if(!song.title)return;$('web-lyrics').href=webLyricsUrl(song.title,song.artist);clearLyrics();
   $('search-status').textContent='Finding lyrics…';$('results').replaceChildren();$('search').disabled=true;
   const timer=setTimeout(()=>controller.abort(),15000);
   try{
@@ -109,11 +110,12 @@ async function poll(){
     $('video-link').hidden=false;$('video-link').href='https://www.youtube.com/watch?v='+playback.videoId;
     $('state').textContent=age>8000?'CONNECTION PAUSED':playback.paused?'PAUSED':'NOW PLAYING · YOUTUBE';
     $('connection').textContent=age>8000?'Waiting for Firefox. Keep the laptop awake and the video tab open.':'Paired · follows play, pause and seeking';
+    $('web-lyrics').hidden=false;$('web-lyrics').href=webLyricsUrl(inferSong(playback.title,playback.channel).title,inferSong(playback.title,playback.channel).artist);
     const nextKey=JSON.stringify([playback.videoId,playback.title,playback.channel]);
     if(videoKey!==nextKey){
       videoId=playback.videoId;videoKey=nextKey;clearLyrics();$('results').replaceChildren();$('search-status').textContent='';
       const song=inferSong(playback.title,playback.channel);$('song-title').value=song.title;$('song-artist').value=song.artist;
-      const stored=remembered.get(videoKey);if(stored){searchAbort?.abort();chooseSong(stored);}else searchLyrics();
+      const ownLyrics=privateLyrics({id:'youtube:'+videoKey});const stored=ownLyrics?{id:'contribution:'+videoKey,trackName:ownLyrics.track.name,artistName:ownLyrics.track.artists[0].name,albumName:ownLyrics.track.album.name,duration:ownLyrics.track.duration_ms/1000,...ownLyrics.value}:remembered.get(videoKey);if(stored){searchAbort?.abort();chooseSong(stored);}else searchLyrics();
     }
     tick();
   }catch{$('connection').textContent='Can’t reach YouTube pairing. Check the internet connection; retrying automatically.';}

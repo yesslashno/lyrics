@@ -1,7 +1,9 @@
+import {createSpotifyControls} from './spotify-controls.js';
+import {privateLyrics,webLyricsUrl} from './private-lyrics.js';
 import {createScreensaver} from './screensaver.js';
 import {createTimingEditor,savedTimings} from './lyrics-timing.js';
-import {createLyricsEditor} from './lyrics-editor.js?v=youtube-2';
-import {Spotify,position,formatTime} from './spotify.js?v=accounts-1';
+import {createLyricsEditor} from './lyrics-editor.js?v=private-1';
+import {Spotify,position,formatTime} from './spotify.js?v=playback-1';
 import {Lyrics,parseLrc,activeLine,trackKey} from './lyrics.js';
 const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort,followingLyrics=true;
 const lyricSection=document.createElement('section'); lyricSection.id='lyrics'; lyricSection.hidden=true;
@@ -13,15 +15,16 @@ const lyricTime=document.createElement('button');lyricTime.className='quiet';lyr
 let plainForTiming='';
 const lyricAdd=document.createElement('button');lyricAdd.className='quiet';lyricAdd.textContent='Add missing lyrics';lyricAdd.hidden=true;
 const editor=createLyricsEditor((track,value)=>{
-  if(value)lyrics.cache.set(trackKey(track),{...value,published:true});
+  if(value)lyrics.cache.set(trackKey(track),value);
   if(trackKey(track)===lyricsKey)loadLyrics(track,true);
 });
 const timingEditor=createTimingEditor({readPlayback:()=>current?.item?{mediaKey:current.item.id,position:position(current,receivedAt),playing:current.is_playing,stale:current.is_playing && performance.now()-receivedAt>6000}:null,onSave:(track,value)=>{lyrics.cache.set(trackKey(track),value);if(trackKey(track)===lyricsKey)loadLyrics(track,true);},onPublish:(track,value)=>editor.open(track,value)});
 lyricTime.onclick=()=>timingEditor.open(current?.item,plainForTiming);
-lyricAdd.onclick=()=>editor.open(current?.item?.type==='track'?current.item:null);
+lyricAdd.onclick=()=>editor.open(current?.item?.type==='track'?current.item:null,privateLyrics(current?.item)?.value || {});
 const lyricStatus=document.createElement('p');lyricStatus.className='lyrics-status';lyricStatus.setAttribute('role','status');
 const lyricScroll=document.createElement('div');lyricScroll.className='lyrics-scroll';lyricScroll.tabIndex=0;lyricScroll.setAttribute('aria-label','Song lyrics');
-const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricFollow,lyricTime,lyricRetry,lyricAdd);lyricHeader.append(lyricLabel,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
+const lyricWeb=document.createElement('a');lyricWeb.className='quiet';lyricWeb.textContent='Search the web ↗';lyricWeb.target='_blank';lyricWeb.rel='noopener noreferrer';lyricWeb.hidden=true;
+const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricWeb,lyricFollow,lyricTime,lyricRetry,lyricAdd);lyricHeader.append(lyricLabel,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
 function pauseFollowing(){if(!lyricLines.length)return;followingLyrics=false;lyricFollow.hidden=false;lyricScroll.scrollTo({top:lyricScroll.scrollTop,behavior:'auto'});}
 lyricScroll.addEventListener('wheel',pauseFollowing,{passive:true});
 lyricScroll.addEventListener('touchstart',pauseFollowing,{passive:true});
@@ -33,20 +36,21 @@ if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{lastLine=-2;follo
 lyricRetry.onclick=()=>{lyrics.cache.delete(trackKey(current?.item));loadLyrics(current?.item,true);};
 async function loadLyrics(track,force=false) {
   const key=trackKey(track);if(key===lyricsKey && !force)return;
+  lyricWeb.hidden=!track;if(track)lyricWeb.href=webLyricsUrl(track.name,track.artists?.[0]?.name);
   lyricsKey=key;lyricAbort?.abort();lyricAbort=new AbortController();const controller=lyricAbort;
   lyricLines=[];lineNodes=[];lastLine=-2;followingLyrics=true;lyricFollow.hidden=true;lyricTime.hidden=true;plainForTiming='';lyricScroll.replaceChildren();lyricScroll.scrollTop=0;
   lyricSection.hidden=!track;document.body.classList.toggle('with-lyrics',!!track);lyricRetry.hidden=true;lyricAdd.hidden=true;if(!track)return;
   lyricStatus.textContent='Finding lyrics…';
   const timeout=setTimeout(()=>controller.abort('timeout'),20000);
   try {
-    let result=await lyrics.get(track,controller.signal);if(key!==lyricsKey || controller!==lyricAbort)return;
+    let result=privateLyrics(track)?.value || await lyrics.get(track,controller.signal);if(key!==lyricsKey || controller!==lyricAbort)return;
     const own=savedTimings(track,result?.plainLyrics || '');if(own)result={...result,...own};
     plainForTiming=result?.plainLyrics || '';lyricTime.hidden=!plainForTiming || !!result?.instrumental || (!!result?.syncedLyrics && !own);lyricTime.textContent=own?'Edit timing':'Add timing';
-    lyricAdd.hidden=!!(result?.instrumental || result?.syncedLyrics || result?.plainLyrics);
-    lyricRetry.hidden=lyricAdd.hidden;
-    lyricAdd.textContent='Add missing lyrics';
+    lyricAdd.hidden=!result?.private && !!(result?.instrumental || result?.syncedLyrics || result?.plainLyrics);
+    lyricRetry.hidden=!!result?.private || lyricAdd.hidden;
+    lyricAdd.textContent=result?.private?'Edit private lyrics':'Add missing lyrics';
     lyricLines=parseLrc(result?.syncedLyrics || '');
-    lyricStatus.textContent=(result?.published?'Published to LRCLIB · ':'')+(result?.instrumental?'Instrumental · no lyrics':lyricLines.length?'Synced lyrics · following the music':result?.plainLyrics?'Plain lyrics · timing unavailable':'No lyrics found for this recording.');
+    lyricStatus.textContent=(result?.private?'Private lyrics · ':result?.published?'Published to LRCLIB · ':'')+(result?.instrumental?'Instrumental · no lyrics':lyricLines.length?'Synced lyrics · following the music':result?.plainLyrics?'Plain lyrics · timing unavailable':'No lyrics found for this recording.');
     const texts=lyricLines.length?lyricLines.map(line=>line.text):result?.plainLyrics?.split(/\r?\n/) || [];
     lineNodes=texts.map(text=>{const node=document.createElement('p');node.className='lyric-line';node.textContent=text || '♪';return node;});lyricScroll.append(...lineNodes);followLyrics(position(current,receivedAt));
   } catch(error) {
@@ -68,6 +72,7 @@ function followLyrics(ms) {
 const $=id=>document.getElementById(id), spotify=new Spotify();
 let current=null,receivedAt=0,timer,busy=null,generation=0,blockedUntil=0,failures=0,accountPending=null,accountName='';
 const screensaver=createScreensaver({isPlaying:()=>!!spotify.tokens() && !!current?.is_playing && performance.now()-receivedAt<10000});
+const playbackControls=createSpotifyControls({spotify,readPlayback:()=>({data:current,fresh:performance.now()-receivedAt<10000}),onEnable:()=>{notice('Approve playback access for this account on Spotify. Use “Not you?” if another account is shown.');connectSpotify(true);},onRefresh:poll});
 function notice(message='') { $('notice').textContent=message; }
 function connected() { const yes=!!spotify.tokens(); $('welcome').hidden=yes; $('player').hidden=!yes; $('account-controls').hidden=!yes && !spotify.accounts().length;$('disconnect').hidden=!yes; if(!yes){accountName='';setAccountPhoto();$('account-name').textContent=spotify.accounts().length?'Spotify accounts':'Spotify account';$('account-retry').hidden=true;} return yes; }
 function setAccountPhoto(url=null,name='') {
@@ -104,11 +109,9 @@ function render(data) {
   if(image && $('art').getAttribute('src')!==image) { $('art').src=image; $('art').alt=`Album artwork for ${track.album.name}`; }
   if(!image) $('art').removeAttribute('src');
   $('timeline').hidden=!track; $('duration').textContent=formatTime(track?.duration_ms || 0);
-  const link=track?.external_urls?.spotify;
-  $('spotify-link').hidden=!link; if(link) $('spotify-link').href=link;
   tick();
 }
-function tick() { const ms=position(current,receivedAt); $('elapsed').textContent=formatTime(ms); $('progress').max=current?.item?.duration_ms || 1; $('progress').value=ms; followLyrics(ms); }
+function tick() { playbackControls.update();const ms=position(current,receivedAt); $('elapsed').textContent=formatTime(ms); $('progress').max=current?.item?.duration_ms || 1; $('progress').value=ms; followLyrics(ms); }
 async function poll() {
   clearTimeout(timer);
   if(busy===generation || !connected()) return;
@@ -134,7 +137,7 @@ async function connectSpotify(switchAccount=false) {
 }
 function signOut(message='This account is signed out. Other saved accounts are available under Switch.') {
   generation++;clearTimeout(timer);blockedUntil=0;failures=0;
-  spotify.disconnect();editor.close();timingEditor.close();current=null;render(null);connected();
+  spotify.disconnect();playbackControls.reset();editor.close();timingEditor.close();current=null;render(null);connected();
   $('account-name').removeAttribute('title');notice(message);$('connect').focus();$('connection').textContent='Made for listening.';
 }
 $('connect').onclick=()=>connectSpotify();
@@ -167,7 +170,7 @@ function openAccounts(){
   }
   picker.hidden=false;(accountList.querySelector('button') || addAccount).focus();
 }
-function resetAccountView(){generation++;clearTimeout(timer);blockedUntil=0;failures=0;editor.close();timingEditor.close();current=null;render(null);accountPending=null;accountName='';setAccountPhoto();connected();}
+function resetAccountView(){playbackControls.reset();generation++;clearTimeout(timer);blockedUntil=0;failures=0;editor.close();timingEditor.close();current=null;render(null);accountPending=null;accountName='';setAccountPhoto();connected();}
 function chooseAccount(id){spotify.selectAccount(id);resetAccountView();notice();loadAccount();poll();}
 addAccount.onclick=()=>{hideAccounts();notice('Choose “Not you?” on Spotify to add a different account.');connectSpotify(true);};
 closePicker.onclick=hideAccounts;
