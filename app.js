@@ -1,8 +1,8 @@
-import {createSpotifyControls} from './spotify-controls.js?v=layout-2';
+import {createSpotifyControls} from './spotify-controls.js?v=layout-3';
 import {privateLyrics,webLyricsUrl} from './private-lyrics.js';
 import {createScreensaver} from './screensaver.js';
 import {createTimingEditor,savedTimings} from './lyrics-timing.js';
-import {createLyricsEditor} from './lyrics-editor.js?v=layout-2';
+import {createLyricsEditor} from './lyrics-editor.js?v=layout-3';
 import {Spotify,position,formatTime} from './spotify.js?v=playback-1';
 import {Lyrics,parseLrc,activeLine,trackKey} from './lyrics.js';
 const lyrics=new Lyrics(); let lyricsKey='',lyricLines=[],lineNodes=[],lastLine=-2,lyricAbort,followingLyrics=true;

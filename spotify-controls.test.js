@@ -26,3 +26,6 @@ test('rate limits prevent repeated commands; errors preserve the saved account',
  for(const status of [403,404,500]){const c=client(async()=>new Response(null,{status}));await assert.rejects(c.control('pause','echo'));assert.ok(c.tokens());}
 });
 test('uncertain network failures do not automatically retry next/previous commands',async()=>{let count=0;const c=client(async()=>{count++;throw new TypeError('network');});await assert.rejects(c.control('next','echo'));assert.equal(count,1);});
+
+import {stepVolume} from "./spotify-controls.js";
+test("volume buttons move ten points and stop at device limits",()=>{assert.equal(stepVolume(40,10),50);assert.equal(stepVolume(50,-10),40);assert.equal(stepVolume(95,10),100);assert.equal(stepVolume(5,-10),0);});
