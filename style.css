@@ -71,3 +71,8 @@ footer{font-size:12px;letter-spacing:normal;justify-content:flex-end}
  .with-lyrics .lyrics-actions{justify-content:flex-start;gap:8px}
  .with-lyrics footer{font-size:12px;letter-spacing:normal;padding:8px 6vw}
 }
+
+.playback-controls .volume-step svg{display:block;width:26px;height:26px}
+.lyrics-top{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%}
+.lyrics-top #connection{color:#87968d;font-size:12px;letter-spacing:normal;line-height:1.4;text-align:right}
+#lyrics .lyrics-header{flex-direction:column;align-items:stretch;gap:12px}

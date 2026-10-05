@@ -24,7 +24,7 @@ lyricAdd.onclick=()=>editor.open(current?.item?.type==='track'?current.item:null
 const lyricStatus=document.createElement('p');lyricStatus.className='lyrics-status';lyricStatus.setAttribute('role','status');
 const lyricScroll=document.createElement('div');lyricScroll.className='lyrics-scroll';lyricScroll.tabIndex=0;lyricScroll.setAttribute('aria-label','Song lyrics');
 const lyricWeb=document.createElement('a');lyricWeb.className='quiet';lyricWeb.textContent='Search the web →';lyricWeb.target='_blank';lyricWeb.rel='noopener noreferrer';lyricWeb.hidden=true;
-const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricWeb,lyricFollow,lyricTime,lyricRetry,lyricAdd);lyricHeader.append(lyricLabel,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
+const lyricActions=document.createElement('div');lyricActions.className='lyrics-actions';lyricActions.append(lyricWeb,lyricFollow,lyricTime,lyricRetry,lyricAdd);const lyricTop=document.createElement('div');lyricTop.className='lyrics-top';lyricTop.append(lyricLabel,document.getElementById('connection'));lyricHeader.append(lyricTop,lyricActions);lyricSection.append(lyricHeader,lyricStatus,lyricScroll);document.querySelector('main').append(lyricSection);
 function pauseFollowing(){if(!lyricLines.length)return;followingLyrics=false;lyricFollow.hidden=false;lyricScroll.scrollTo({top:lyricScroll.scrollTop,behavior:'auto'});}
 lyricScroll.addEventListener('wheel',pauseFollowing,{passive:true});
 lyricScroll.addEventListener('touchstart',pauseFollowing,{passive:true});
